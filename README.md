@@ -265,6 +265,9 @@ and the first emulator you add for a system becomes its default.
 
 ### Getting your ROMs in
 
+**+ Add games** sits in the top bar on every screen, and again at the end of the
+Systems row. It offers the three routes below.
+
 All of these end in the same place — files sorted into `roms/<System>/` and showing
 up in your library. They differ in one way that matters for a big collection:
 whether the file is **moved** or **copied**.

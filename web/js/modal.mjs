@@ -149,7 +149,7 @@ export function confirmModal({
 
 /**
  * Single-choice list.
- * @param {{title:string, note?:string, options:Array<{id:string,title:string,note?:string,selected?:boolean,disabled?:boolean}>, allowNone?:string}} spec
+ * @param {{title:string, note?:string, options:Array<{id:string,title:string,note?:string,selected?:boolean,focus?:boolean,disabled?:boolean}>, allowNone?:string}} spec
  * @returns {Promise<string|null>}
  */
 export function chooseModal({ title, note, options, allowNone = null }) {
@@ -167,7 +167,11 @@ export function chooseModal({ title, note, options, allowNone = null }) {
               class: ['choice', option.selected && 'is-selected'],
               nav: true,
               'data-nav-key': `choice-${option.id}`,
-              'data-nav-initial': option.selected ? '' : null,
+              // `selected` means "this is the current value" and is labelled as
+              // such. `focus` only says where to land — for a list of *actions*
+              // there is no current value, and calling one "Current" reads as a
+              // setting rather than a thing about to happen.
+              'data-nav-initial': option.selected || option.focus ? '' : null,
               'aria-disabled': option.disabled ? 'true' : null,
               onClick: () => {
                 if (!option.disabled) close(option.id);

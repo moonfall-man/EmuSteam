@@ -9,10 +9,11 @@ import { h, clear, fmtClock, fmtTimer, debounce } from './util.mjs';
 import { api, subscribeEvents } from './api.mjs';
 import * as nav from './nav.mjs';
 import { onAction, onPadChange, startInput, isPadConnected } from './input.mjs';
-import { isModalOpen, handleModalAction, confirmModal } from './modal.mjs';
+import { isModalOpen, handleModalAction, confirmModal, chooseModal } from './modal.mjs';
 import { toast } from './toast.mjs';
 import { setAmbient, GALAXY_TINT } from './art.mjs';
-import { installDropTarget } from './upload.mjs';
+import { installDropTarget, pickAndUpload } from './upload.mjs';
+import { addSourceFlow, importRomsFlow } from './flows.mjs';
 import * as homeView from './views/home.mjs';
 import * as platformView from './views/platform.mjs';
 import * as gameView from './views/game.mjs';
@@ -203,7 +204,10 @@ function renderView({ restore = false, keepFocus = false } = {}) {
   const entry = currentEntry();
   const previousKey = keepFocus ? nav.currentKey() : entry.focusKey;
 
-  const ctx = { state, params: entry.params, go, back, refresh, setQuery };
+  // addGames is handed to views rather than reached for: the flow lives here
+  // because the topbar owns it, and a view digging the button out of the DOM to
+  // click it would break the moment the topbar is hidden.
+  const ctx = { state, params: entry.params, go, back, refresh, setQuery, addGames: addGamesFlow };
   const view = VIEWS[entry.name].render(ctx);
   activeView = view;
 
@@ -310,6 +314,20 @@ function renderTopbar(view) {
       h('span', { class: 'searchbox-icon', text: '⌕' }),
       searchInput,
     ),
+  );
+
+  // Adding games belongs on the main screen, not buried in Settings. It is the
+  // first thing anyone needs and the one thing they will do repeatedly, so it sits
+  // in the topbar next to search rather than behind a menu.
+  bar.append(
+    h('button', {
+      class: 'btn btn-add',
+      nav: true,
+      'data-nav-key': 'add-games',
+      title: 'Add games — pick ROMs, or drag them onto the window',
+      text: '+  Add games',
+      onClick: () => addGamesFlow(),
+    }),
   );
 
   if (state.settings.clock) {
@@ -848,4 +866,60 @@ function onUploadEvent(data) {
   const pct = data.bytes ? Math.round((data.doneBytes / data.bytes) * 100) : 0;
   title.textContent = `Uploading… ${pct}%`;
   sub.textContent = `${data.done + 1} of ${data.total} — ${data.label || ''}`;
+}
+
+// ------------------------------------------------------------- adding games
+
+/**
+ * The one entry point for "I have ROMs, put them in".
+ *
+ * A chooser rather than a single action, because the three routes are genuinely
+ * different and the right one depends on what you have. Ordered by what most
+ * people want first: bring games in, then point at a library you already keep.
+ *
+ * Copy-versus-move is not asked here — the import flow asks it once it knows how
+ * much it is dealing with, which is the point at which the answer matters.
+ */
+async function addGamesFlow() {
+  const choice = await chooseModal({
+    title: 'Add games',
+    note: 'However they arrive, they get sorted into roms/ by system. You can also drag ROMs — or whole folders — anywhere onto this window.',
+    options: [
+      {
+        id: 'import',
+        title: 'Import ROMs from this PC',
+        note: 'Pick files or a whole folder. Can move them instead of copying, so a big collection costs no extra space.',
+        selected: true,
+      },
+      {
+        id: 'upload',
+        title: 'Choose a few files',
+        note: 'A file picker. Copies them in — quickest for a game or two.',
+      },
+      {
+        id: 'folder',
+        title: 'Point at a library I already have',
+        note: 'Leaves everything exactly where it is and scans it in place.',
+      },
+    ],
+  });
+  if (!choice) return;
+
+  if (choice === 'upload') {
+    pickAndUpload({
+      onProgress: onUploadEvent,
+      onDone: () => refresh({ keepFocus: true }),
+    });
+    return;
+  }
+
+  try {
+    if (choice === 'import') {
+      if (await importRomsFlow('files')) refresh({ keepFocus: true });
+      return;
+    }
+    if (await addSourceFlow(state)) refresh({ keepFocus: true });
+  } catch (err) {
+    toast.error(err.message);
+  }
 }

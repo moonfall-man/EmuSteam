@@ -336,3 +336,25 @@ ul { margin: 0; padding: 0; list-style: none; }
   color: transparent;
 }
 .boot-sub { color: var(--text-mute); font-size: 15px; letter-spacing: 0.04em; }
+
+/* "Add games" in the topbar. Deliberately not an icon: this is the first thing a
+   new user needs, and a glyph would make them guess. Sits next to search because
+   that is where the eye already goes for "do something with my library". */
+.btn-add {
+  white-space: nowrap;
+  font-weight: 620;
+  padding: 8px 15px;
+  border-color: color-mix(in oklab, var(--accent) 55%, transparent);
+  color: var(--text);
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+}
+.btn-add:hover { background: color-mix(in oklab, var(--accent) 26%, transparent); }
+.btn-add.is-focused {
+  background: color-mix(in oklab, var(--accent) 34%, transparent);
+  border-color: var(--accent);
+}
+/* On a narrow window the label is the first thing that can go. */
+@media (max-width: 900px) {
+  .btn-add { padding: 8px 11px; }
+  .btn-add-label { display: none; }
+}

@@ -12,7 +12,7 @@ import { GALAXY_TINT } from './../art.mjs';
 const MAX_RAIL = 16;
 
 export function render(ctx) {
-  const { state, go, refresh } = ctx;
+  const { state, go, refresh, addGames } = ctx;
 
   if (!state.games.length) {
     return {
@@ -67,9 +67,9 @@ export function render(ctx) {
           platformCard(platform, { onOpen: (p) => go('platform', { platform: p.id }) }),
         ),
       allGamesCard(visible.length, { onOpen: () => go('platform', { platform: '*' }) }),
-      actionCard('Add ROM folder', 'Import more games', async () => {
-        if (await addSourceFlow(state)) refresh();
-      }, 'add-source'),
+      // Same chooser as the topbar button, at the end of the rail where someone
+      // scrolling their systems will run into it.
+      actionCard('Add games', 'Import ROMs, or point at a library', () => addGames(), 'add-source'),
     ]),
   );
 
