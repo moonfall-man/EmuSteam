@@ -12,6 +12,7 @@ import { onAction, onPadChange, startInput, isPadConnected } from './input.mjs';
 import { isModalOpen, handleModalAction, confirmModal } from './modal.mjs';
 import { toast } from './toast.mjs';
 import { setAmbient, GALAXY_TINT } from './art.mjs';
+import { installDropTarget } from './upload.mjs';
 import * as homeView from './views/home.mjs';
 import * as platformView from './views/platform.mjs';
 import * as gameView from './views/game.mjs';
@@ -645,6 +646,13 @@ async function boot() {
     if (clock) clock.textContent = fmtClock();
   }, 20_000);
 
+  // ROMs can be dragged straight onto the window — from this machine or from a
+  // browser on another one. They land in roms/ and the organiser sorts them.
+  installDropTarget({
+    onProgress: onUploadEvent,
+    onDone: () => refresh({ keepFocus: true }),
+  });
+
   // A gamepad already held at startup is only reported after the first input
   // event, so nudge the poller once the page is interactive.
   window.addEventListener('pointerdown', startInput, { once: true });
@@ -792,4 +800,52 @@ function onImportEvent(data) {
   const pct = data.total ? Math.round((data.done / data.total) * 100) : 0;
   title.textContent = `${verb} games… ${pct}%`;
   sub.textContent = `${data.done} of ${data.total} — ${data.label || ''} → ${data.folder || ''}`;
+}
+
+// ---------------------------------------------------------- upload progress
+
+/** Upload progress, in the same card as scanning, artwork and importing. */
+function onUploadEvent(data) {
+  const bar = document.getElementById('scanbar');
+  const title = document.getElementById('scanbar-title');
+  const sub = document.getElementById('scanbar-sub');
+  if (!bar || !title || !sub) return;
+
+  clearTimeout(scanHideTimer);
+
+  if (data.phase === 'done') {
+    const n = data.uploaded || 0;
+    title.textContent = n ? `Added ${n} file${n === 1 ? '' : 's'}` : 'Nothing added';
+    const parts = [];
+    if (data.bytes) parts.push(fmtBytes(data.bytes));
+    const folders = [...new Set((data.organized?.moved || []).map((m) => m.folder))];
+    if (folders.length) parts.push(`sorted into ${folders.join(', ')}`);
+    if (data.failed?.length) parts.push(`${data.failed.length} failed`);
+    sub.textContent = parts.join(' · ');
+    bar.classList.add('show', 'is-done');
+    scanHideTimer = setTimeout(() => bar.classList.remove('show', 'is-done'), 5000);
+    return;
+  }
+
+  bar.classList.remove('is-done');
+  bar.classList.add('show');
+
+  if (data.phase === 'start') {
+    title.textContent = `Uploading ${data.total} file${data.total === 1 ? '' : 's'}…`;
+    sub.textContent = fmtBytes(data.bytes);
+    return;
+  }
+  if (data.phase === 'sorting') {
+    // The upload is the slow part; sorting is instant, but saying so stops the
+    // card looking stuck at 100% while the organiser and rescan run.
+    title.textContent = 'Sorting them by system…';
+    sub.textContent = `${data.uploaded} file${data.uploaded === 1 ? '' : 's'} uploaded`;
+    return;
+  }
+
+  // Percentage by bytes, not by file count: one 600 MB disc among ten small
+  // carts would otherwise sit at 10% for the whole upload.
+  const pct = data.bytes ? Math.round((data.doneBytes / data.bytes) * 100) : 0;
+  title.textContent = `Uploading… ${pct}%`;
+  sub.textContent = `${data.done + 1} of ${data.total} — ${data.label || ''}`;
 }

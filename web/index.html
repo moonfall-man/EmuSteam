@@ -33,6 +33,15 @@
   <!-- Scan progress. Lives outside the view so a rescan never disturbs what you
        are looking at, and so the first scan of a big library has something to
        report into. -->
+  <!-- Shown while files are dragged over the window. -->
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-card">
+      <div class="dropzone-mark">↓</div>
+      <div class="dropzone-title">Drop ROMs to import</div>
+      <div class="dropzone-sub">Files or whole folders. EmuSteam sorts them by system.</div>
+    </div>
+  </div>
+
   <div class="scanbar" id="scanbar" aria-live="polite">
     <div class="spinner"></div>
     <div class="scanbar-text">

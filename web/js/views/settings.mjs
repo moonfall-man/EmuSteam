@@ -9,6 +9,7 @@ import { GALAXY_TINT } from './../art.mjs';
 import { onAction, BUTTON_ACTIONS, BUTTON_NAMES } from './../input.mjs';
 // The in-app catalogue outgrew this file and lives in its own module.
 import { inAppPanel } from './inapp.mjs';
+import { pickAndUpload } from './../upload.mjs';
 import {
   addSourceFlow, addEmulatorFlow, editEmulatorFlow, importRomsFlow,
   pickPlatformModal, pickPlatformEmulatorFlow, pickCoreFlow, rescan,
@@ -263,17 +264,34 @@ function libraryPanel(ctx) {
       h('h2', { class: 'panel-title', text: 'ROM folders' }),
       h('p', {
         class: 'panel-note',
-        text: 'Import copies or moves games into roms/ and files them by system — pick a pile of files or a whole folder and it works out what each one is. Or point at a library you keep elsewhere and leave it where it is.',
+        text: 'Three ways to get games in, all of which end up sorted by system: drag files onto this window, add them with the buttons below, or point at a library you already keep somewhere else and leave it exactly where it is.',
+      }),
+      h('p', {
+        class: 'field-hint',
+        style: { marginTop: '-10px', marginBottom: '14px' },
+        text: 'Easiest: drag ROMs — or a whole folder of them — anywhere onto the EmuSteam window.',
       }),
       h(
         'div',
         { class: 'row-actions', style: { marginBottom: '18px' } },
+        // Two ways in, because they are good at different things. Upload works
+        // from any browser including another device; the native dialog only opens
+        // on the machine running EmuSteam, but can move a file instead of sending
+        // its bytes over HTTP.
         h('button', {
           class: 'btn btn-primary',
           nav: true,
+          'data-nav-key': 'upload-files',
+          text: '↑  Add ROMs…',
+          title: 'Choose files to upload; they are sorted into roms/ by system',
+          onClick: () => pickAndUpload({ onDone: () => refresh({ keepFocus: true }) }),
+        }),
+        h('button', {
+          class: 'btn',
+          nav: true,
           'data-nav-key': 'import-files',
-          text: '↓  Import ROMs…',
-          title: 'Pick ROM files from anywhere; they get filed into roms/ by system',
+          text: 'Import from this PC…',
+          title: 'Uses a native file dialog, so files can be moved rather than copied',
           onClick: async () => { if (await importRomsFlow('files')) refresh(); },
         }),
         h('button', {

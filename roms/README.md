@@ -1,67 +1,71 @@
 # roms/
 
-**Drop your ROMs into the folder for their system. That's it.**
+**Put your ROMs in this folder. Any of them, all mixed together. EmuSteam sorts
+them into per-system folders for you.**
 
-The folders in here are managed by EmuSteam, and the rule is simple:
+That's the whole thing. You don't need to create folders, and you don't need to
+know which subfolder a file belongs in.
 
-> A folder appears here if and only if you have an emulator that can play
-> that system.
+## Three ways to get games in
 
-So add mGBA, and `GBA/`, `Game Boy/` and `Game Boy Color/` show up — already
-registered for scanning. Put files in them, and they're in your library on the
-next scan (which happens automatically at startup).
+Pick whichever suits you — they all end up in the same place.
 
-An empty folder here means "I can play this system, I just don't have any games
-for it yet". A folder that *isn't* here means you don't have an emulator for it —
-add one in Settings → Emulators.
+| | |
+|---|---|
+| **Drag them onto the window** | Files or whole folders, dropped anywhere on the EmuSteam window. Works from another device too. |
+| **Settings → ROM folders → Add ROMs…** | A file picker, if you'd rather click than drag. |
+| **Copy them into this folder yourself** | Straight into `roms/`, not into a subfolder. They're sorted on the next launch. |
 
-### Just drop ROMs in here and they sort themselves
+There's also **Import from this PC…**, which uses a native file dialog. It's the
+only option that can *move* files instead of copying them — useful for a folder of
+PS2 ISOs you don't want two copies of — but it opens on the machine running
+EmuSteam, so it's no help if you're connected from a phone or another laptop.
 
-You don't have to find the right subfolder. Drop a `.gb` straight into `roms/`
-and on the next scan — which happens at every launch — it's moved into `roms/GB/`,
-creating that folder if it doesn't exist yet. Same for a game that ended up in the
-wrong system folder.
+If your library already lives somewhere else and you'd rather leave it there, use
+Settings → **Add ROM folder** and point at it instead. Nothing gets moved.
 
-Two things are never guessed at:
+## How the sorting works
 
-- **Ambiguous formats stay put.** A `.bin` could be a PS1 track or a Genesis
-  cart, so `.bin`, `.iso`, `.cue` and `.zip` are reported in
-  Settings → ROM folders and left exactly where they are for you to file.
-- **Nothing is ever overwritten.** A name collision is reported and skipped.
+A `.gb` goes to `GB/`, a `.z64` to `N64/`, and so on by file extension.
 
-Everything that moves is printed to the console and shown in the app, so files
-never move silently. If you'd rather do your own filing, turn off
-**File stray ROMs automatically** in Settings → ROM folders; loose files are then
-still listed, with a **File them now** button when you want it.
+For formats where the extension doesn't say — `.bin`, `.iso`, `.cue`, `.img` could
+each be one of half a dozen systems — **the file is opened and asked**. Disc images
+carry a signature identifying the console that made them: a PS1 disc says
+`PLAYSTATION` in its ISO 9660 descriptor, a Sega CD says `SEGADISCSYSTEM` in sector
+zero. The app tells you what identified each one before it moves it.
 
-Sub-folders you make *inside* a system folder (`GBA/Pokemon/…`) are your business
-and are never rearranged — they're scanned recursively, so organise however you
-like.
+A **cue sheet and its tracks always move together**, since separating them breaks
+the game. One name collision blocks the whole set rather than moving half of it.
 
-### Things worth knowing
+Two things it will not do:
 
-- **Sub-folders are fine.** `GBA/Pokemon/Emerald.gba` works. Organise however
-  you like.
-- **Disc games:** keep the `.cue` next to its `.bin` tracks. EmuSteam shows one
-  entry, not five. For multi-disc games, either name them `(Disc 1)` /
-  `(Disc 2)` or drop in an `.m3u` — either way they collapse into one game.
-- **Box art** can live next to a ROM with a matching name, or in an `Images/`
-  subfolder. Anything without art gets a generated cover, so nothing looks
-  broken.
-- **Removing an emulator** removes its folder here *only if the folder is
-  empty*. Your games are never deleted to follow an uninstall.
-- **A folder here with games but no emulator** gets flagged in
-  Settings → ROM folders rather than silently ignored.
+- **Nothing is ever overwritten.** A file that already exists is skipped and named.
+- **Nothing is guessed.** A file whose contents identify nothing — including `.zip`,
+  since archives aren't opened — stays exactly where it is and is listed in
+  Settings → ROM folders with the reason.
 
-### You don't have to use this folder
+Everything that moves is printed to the console and shown in the app. If you'd
+rather do your own filing, turn off **File stray ROMs automatically** in
+Settings → ROM folders; loose files are still listed, with a **File them now**
+button for when you want it.
 
-It exists because it makes the setup portable and easy to hand to someone else.
-If your library already lives on a big data drive, add it via
-Settings → **Add ROM folder** and point at it. Both kinds of folder work at once;
-the ones in here are just labelled "auto".
+## Things worth knowing
 
-### Why it's empty in the repo
+- **Subfolders inside a system folder are yours.** `GBA/Pokemon/Emerald.gba` works
+  and is never rearranged — they're scanned recursively, so organise however you like.
+- **Multi-disc games:** name them `(Disc 1)` / `(Disc 2)`, or drop in an `.m3u`.
+  Either way they collapse into one entry.
+- **Box art** can sit next to a ROM with a matching name, or in an `Images/`
+  subfolder. Or just run **Download artwork** in Settings and skip the whole
+  question. Anything without art gets a generated cover.
+- **A system folder appears** when you have something that can play it — an
+  emulator *or* a downloaded core — or when games for it turn up here. An empty
+  folder means "I can play this, I just don't have games yet".
+- **Removing an emulator** removes its folder only if that folder is empty. Your
+  games are never deleted to follow an uninstall.
 
-These folders are generated per-machine from the emulators *you* have, so only
-this README is committed. On a fresh clone you'll see nothing here until you add
-your first emulator.
+## Why it's empty in a fresh clone
+
+These folders are generated from what *you* have, so only this README is
+committed — no ROMs, no personal library. You'll see nothing here until you add
+your first game.

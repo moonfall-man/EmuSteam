@@ -14,6 +14,7 @@ import { webRoot } from './paths.mjs';
 import { handleApi, ApiError, addEventClient, resolveRomRequest, resolveSaveState } from './api.mjs';
 import { resolveArtRequest, mimeForImage } from './art.mjs';
 import { coresRoot } from './cores.mjs';
+import { romsRoot } from './workspace.mjs';
 
 const TOKEN_HEADER = 'x-emusteam-token';
 const MAX_BODY_BYTES = 1 << 20; // 1 MB is generous for a JSON control API
@@ -63,6 +64,7 @@ async function handleRequest(req, res, token) {
     return handleRomRequest(req, res, url, token);
   }
   if (url.pathname === '/savestate') return handleSaveStateRequest(req, res, url, token);
+  if (url.pathname === '/upload') return handleUploadRequest(req, res, url, token);
   return handleStaticRequest(req, res, url, token);
 }
 
@@ -217,6 +219,96 @@ function handleSaveStateRequest(req, res, url, token) {
       return sendJson(res, 500, { error: `Could not store the save state: ${err.message}` });
     }
     return sendJson(res, 200, { ok: true, slot: target.slot, bytes: total });
+  });
+
+  req.pipe(out);
+}
+
+// --------------------------------------------------------------- ROM upload
+
+// A generous ceiling rather than a real limit: a dual-layer DVD rip is ~8 GB.
+const MAX_UPLOAD_BYTES = 16 * 1024 * 1024 * 1024;
+
+/**
+ * Receive one ROM and drop it in roms/, where the organiser will sort it.
+ *
+ * One file per request with the bytes as the raw body, deliberately: multipart
+ * would mean writing a parser for a format we do not otherwise need, and a
+ * per-file request gives the browser natural progress and lets one bad file fail
+ * on its own instead of taking the batch with it.
+ *
+ * This is the route that works from another device. The native file dialog is
+ * nicer locally — it can move a file instead of copying its bytes over HTTP — but
+ * it opens on the machine running the server, which is no use if that is not the
+ * machine you are sitting at.
+ */
+function handleUploadRequest(req, res, url, token) {
+  if (!authorized(req, url, token)) {
+    return sendJson(res, 401, { error: 'Bad or missing token.' });
+  }
+  if (req.method !== 'POST') {
+    return sendJson(res, 405, { error: 'Use POST to upload a ROM.' });
+  }
+
+  // Only ever a filename. A browser sends whatever the file is called, and that
+  // string must never be able to steer where it lands.
+  const raw = String(url.searchParams.get('name') || '').replaceAll('\\', '/');
+  const name = path
+    .basename(raw)
+    // A leading dot would make it hidden, or worse make it '..'.
+    .replace(/^[.]+/, '')
+    // Characters Windows forbids in a filename, plus control characters.
+    .replace(/[<>:"|?*]/g, '_')
+    .replace(new RegExp('[' + String.fromCharCode(0) + '-' + String.fromCharCode(31) + ']', 'g'), '_')
+    .trim();
+  if (!name) return sendJson(res, 400, { error: 'No usable filename.' });
+
+  const dir = romsRoot;
+  const dest = path.join(dir, name);
+  // Belt and braces: after sanitising, the destination must still be inside roms/.
+  if (path.relative(dir, dest).startsWith('..') || path.isAbsolute(path.relative(dir, dest))) {
+    return sendJson(res, 400, { error: 'That filename cannot be used.' });
+  }
+  if (safeStat(dest)) {
+    return sendJson(res, 409, { error: `roms/${name} already exists.` });
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${dest}.part`;
+  const out = fs.createWriteStream(tmp);
+  let total = 0;
+  let done = false;
+
+  const fail = (status, message) => {
+    if (done) return;
+    done = true;
+    out.destroy();
+    fs.rm(tmp, { force: true }, () => {});
+    if (!res.headersSent) sendJson(res, status, { error: message });
+    req.destroy();
+  };
+
+  req.on('data', (chunk) => {
+    total += chunk.length;
+    if (total > MAX_UPLOAD_BYTES) fail(413, 'That file is larger than the upload limit.');
+  });
+  req.on('error', () => fail(400, 'The upload did not finish.'));
+  out.on('error', (err) => fail(500, `Could not write the file: ${err.message}`));
+  out.on('finish', () => {
+    if (done) return;
+    done = true;
+    if (!total) {
+      fs.rm(tmp, { force: true }, () => {});
+      return sendJson(res, 400, { error: 'The file was empty.' });
+    }
+    try {
+      // Temp file + rename so a half-received ROM is never visible to a scan.
+      fs.renameSync(tmp, dest);
+    } catch (err) {
+      fs.rm(tmp, { force: true }, () => {});
+      return sendJson(res, 500, { error: `Could not store the file: ${err.message}` });
+    }
+    return sendJson(res, 200, { ok: true, name, bytes: total });
   });
 
   req.pipe(out);

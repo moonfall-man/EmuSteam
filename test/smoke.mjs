@@ -484,6 +484,70 @@ try {
   await call('POST', '/api/emulators/remove', { id: gbEmuId });
   await call('POST', '/api/scan');
 
+  section('uploading ROMs from a browser');
+  {
+    // The upload route exists for the case a native dialog cannot serve: a
+    // browser on another device. It takes one file per request as a raw body,
+    // writes into roms/, and lets the organiser do the sorting.
+    const put = (name, body) => fetch(`${base}/upload?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'x-emusteam-token': token, 'content-type': 'application/octet-stream' },
+      body,
+    });
+
+    check('uploading needs a token',
+      (await fetch(`${base}/upload?name=x.gb`, { method: 'POST' })).status === 401);
+    check('GET is not an upload',
+      (await fetch(`${base}/upload?name=x.gb`, { headers: { 'x-emusteam-token': token } })).status === 405);
+
+    let up = await put('Upload Test (USA).md', 'ROMBYTES');
+    check('a ROM uploads', up.status === 200, String(up.status));
+    check('and reports its size', (await up.json()).bytes === 8);
+    check('landing loose in roms/',
+      fs.existsSync(path.join(workspaceRoot, 'roms', 'Upload Test (USA).md')));
+
+    check('a duplicate is refused rather than overwritten',
+      (await put('Upload Test (USA).md', 'DIFFERENT')).status === 409);
+    check('an empty body is refused', (await put('Upload Empty.gb', '')).status === 400);
+
+    // The filename comes from a browser, so it is attacker-controlled text. It
+    // must only ever name a file, never steer where that file goes.
+    for (const attempt of ['../../escaped.gb', '..\\..\\escaped2.gb', 'C:\\Windows\\escaped3.gb']) {
+      const res = await put(attempt, 'ROMBYTES');
+      const landed = res.ok ? (await res.json()).name : null;
+      check(`a filename cannot traverse (${attempt})`,
+        !res.ok || (!landed.includes('/') && !landed.includes('\\') && !landed.includes('..')),
+        String(landed));
+    }
+    check('nothing was written outside roms/',
+      !fs.existsSync(path.join(workspaceRoot, 'escaped.gb'))
+        && !fs.existsSync(path.join(tmpRoot, 'escaped.gb'))
+        && !fs.existsSync(path.join(repoRoot, 'escaped.gb')));
+    check('a leading dot is stripped so the file cannot hide',
+      (await put('.sneaky.gb', 'ROMBYTES')).ok
+        && !fs.existsSync(path.join(workspaceRoot, 'roms', '.sneaky.gb'))
+        && fs.existsSync(path.join(workspaceRoot, 'roms', 'sneaky.gb')));
+
+    // The point of uploading: the organiser then files them by system.
+    r = await call('POST', '/api/workspace/organize');
+    const movedTo = (name) => r.json.moved?.find((m) => m.name === name)?.folder;
+    check('uploaded ROMs are then sorted by system',
+      movedTo('Upload Test (USA).md') === 'Genesis', JSON.stringify(r.json.moved));
+    check('including the ones with sanitised names',
+      movedTo('escaped.gb') === 'GB' && movedTo('sneaky.gb') === 'GB',
+      JSON.stringify(r.json.moved));
+
+    await call('POST', '/api/scan');
+    check('and reach the library',
+      (await call('GET', '/api/state')).json.games.some((g) => /Upload Test/.test(g.title)));
+
+    // Reset: a later section asserts exactly which system folders exist.
+    for (const dir of ['Genesis', 'GB']) {
+      fs.rmSync(path.join(workspaceRoot, 'roms', dir), { recursive: true, force: true });
+    }
+    await call('POST', '/api/scan');
+  }
+
   section('bulk import');
   {
     // Driven entirely over HTTP, never by importing src/importer.mjs here.

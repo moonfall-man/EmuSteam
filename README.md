@@ -263,12 +263,22 @@ Then, in the app:
 That's the whole setup — there's no "add ROM folder" step for the common case,
 and the first emulator you add for a system becomes its default.
 
-### Importing a pile of ROMs
+### Getting your ROMs in
 
-**Settings → ROM folders → Import ROMs…** Pick a stack of files, or point it at a
-whole folder and let it walk the tree. Every file is identified, sorted into
-`roms/<System>/`, and added to your library — no file manager, no dragging things
-into the right subfolder.
+**Drag them onto the window.** Files or whole folders, dropped anywhere on the
+EmuSteam window. They upload, get sorted into `roms/<System>/`, and appear in your
+library. This works from a browser on another device too, which is the case a file
+dialog cannot serve.
+
+Two buttons in **Settings → ROM folders** do the same job:
+
+| | |
+|---|---|
+| **Add ROMs…** | A file picker in the browser. Same as dragging. |
+| **Import from this PC…** | A native dialog. The only route that can *move* files rather than copy them, but it opens on the machine running EmuSteam. |
+
+Or copy files into `roms/` yourself and they're sorted on the next launch. All
+four routes end in the same place.
 
 It shows you what it is about to do first — *"14 games, 2.1 GB into GB (3), PS1 (1),
 SNES (10). 2 files will be left alone."* — and asks whether to **copy** or **move**.
