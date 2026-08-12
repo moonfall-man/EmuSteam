@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "emusteam",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["src/main.mjs", "--no-open", "--port", "7719"],
+      "port": 7719,
+      "url": "http://127.0.0.1:7719"
+    }
+  ]
+}

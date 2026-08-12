@@ -65,12 +65,26 @@ function findBrowser() {
 }
 
 /**
+ * How long a browser process has to live before its exit is believed to mean
+ * "the user closed the window".
+ *
+ * A Chromium launched with a --user-data-dir that another instance already owns
+ * does not open a window of its own: it hands the URL to the running process and
+ * exits immediately. Treating that as "the window closed" made EmuSteam shut its
+ * own server down within a second of starting, so the window that did open was
+ * pointing at nothing.
+ */
+const WINDOW_GRACE_MS = 2500;
+
+/**
  * Launch the app window.
  * @param {string} url
- * @param {{fullscreen?:boolean, onClose?:() => void}} opts
+ * @param {{fullscreen?:boolean, onClose?:() => void, onDetached?:() => void}} opts
+ *   onClose fires when the window is genuinely closed. onDetached fires instead
+ *   when the browser exited too fast to have been a window at all.
  * @returns {{mode:'app'|'default'|'none', browser?:string}}
  */
-export function openAppWindow(url, { fullscreen = true, onClose } = {}) {
+export function openAppWindow(url, { fullscreen = true, onClose, onDetached } = {}) {
   const browser = findBrowser();
 
   if (browser) {
@@ -93,9 +107,16 @@ export function openAppWindow(url, { fullscreen = true, onClose } = {}) {
     ];
 
     try {
+      const startedAt = Date.now();
       const child = spawn(browser, args, { stdio: 'ignore', detached: false });
-      child.on('exit', () => onClose?.());
-      child.on('error', () => onClose?.());
+      child.on('exit', () => {
+        // Distinguish "you closed the window" from "this process never owned a
+        // window". Closing one takes a person at least a moment; handing off to an
+        // already-running Chromium takes milliseconds.
+        if (Date.now() - startedAt < WINDOW_GRACE_MS) onDetached?.();
+        else onClose?.();
+      });
+      child.on('error', () => onDetached?.());
       return { mode: 'app', browser };
     } catch {
       // fall through to the default-browser path

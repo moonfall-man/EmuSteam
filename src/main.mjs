@@ -206,6 +206,14 @@ async function main() {
     const result = openAppWindow(url, {
       fullscreen: opts.fullscreen,
       onClose: () => quit(0),
+      // The browser exited too quickly to have been a window — almost always
+      // because another Chromium already owns this profile and took the URL. Keep
+      // serving: shutting down here would kill the app behind a window that just
+      // opened, which looks exactly like EmuSteam crashing on launch.
+      onDetached: () => {
+        console.log('[emusteam] The browser handed the page to an existing window.');
+        console.log(`[emusteam] Still serving ${url} — press Ctrl+C to stop.`);
+      },
     });
     if (result.mode === 'app') {
       console.log(`[emusteam] Window open via ${result.browser}`);
