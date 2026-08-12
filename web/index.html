@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<title>EmuSteam</title>
+<link rel="stylesheet" href="/css/base.css" />
+<link rel="stylesheet" href="/css/views.css" />
+<script>
+  // Injected by the server so only same-origin scripts can reach the API.
+  window.EMUSTEAM_TOKEN = '__EMUSTEAM_TOKEN__';
+</script>
+</head>
+<body>
+  <!-- Platform-tinted ambient glow; the active view sets --tint-a/--tint-b. -->
+  <div class="ambient" aria-hidden="true"></div>
+
+  <header class="topbar" id="topbar"></header>
+
+  <main class="stage" id="stage" tabindex="-1"></main>
+
+  <footer class="hints" id="hints"></footer>
+
+  <div class="overlay-root" id="overlay-root"></div>
+  <div class="toast-root" id="toast-root" aria-live="polite"></div>
+
+  <div class="boot" id="boot">
+    <div class="boot-mark">EMUSTEAM</div>
+    <div class="boot-sub" id="boot-sub">Reading your library…</div>
+  </div>
+
+  <!-- Scan progress. Lives outside the view so a rescan never disturbs what you
+       are looking at, and so the first scan of a big library has something to
+       report into. -->
+  <div class="scanbar" id="scanbar" aria-live="polite">
+    <div class="spinner"></div>
+    <div class="scanbar-text">
+      <div class="scanbar-title" id="scanbar-title">Scanning your library…</div>
+      <div class="scanbar-sub" id="scanbar-sub"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/js/app.mjs"></script>
+</body>
+</html>

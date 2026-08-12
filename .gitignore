@@ -1,0 +1,19 @@
+# EmuSteam keeps all mutable state in data/ so the repo stays clean and the
+# folder stays portable. Ship the folder, not the state.
+data/
+
+# roms/ and emulators/ ship as directories (their READMEs are committed) but
+# their contents never are. The per-system subfolders under roms/ are generated
+# from whichever emulators *you* have, so they are machine-specific by design —
+# and ROMs and emulator builds are not ours to redistribute.
+roms/*
+!roms/README.md
+emulators/*
+!emulators/README.md
+
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+cores/

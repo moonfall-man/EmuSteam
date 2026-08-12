@@ -1,0 +1,338 @@
+/* Design tokens, reset and the primitives every view shares.
+   Everything is sized in rem off a 10-foot baseline: this UI is read from a
+   couch, so nothing here is smaller than 13px and body copy sits at 16-18px. */
+
+:root {
+  /* Surface. Near-black with a violet cast rather than a neutral grey one, so
+     the purple accent reads as part of the room instead of pasted on top. */
+  --bg:        #07050e;
+  --bg-2:      #130d22;
+  --panel:     rgba(255, 255, 255, 0.045);
+  --panel-2:   rgba(255, 255, 255, 0.075);
+  --panel-3:   rgba(255, 255, 255, 0.11);
+  --line:      rgba(255, 255, 255, 0.10);
+  --line-soft: rgba(255, 255, 255, 0.055);
+
+  /* ink — very slightly warm-violet white, not clinical #fff */
+  --text:      #f1ecfa;
+  --text-dim:  #a79cbd;
+  --text-mute: #7a6f92;
+
+  /* Galaxy purple. --accent is the interactive colour; --accent-2 is the
+     nebula magenta it gradients into for logos, bars and highlights. */
+  --accent:    #a86bff;
+  --accent-2:  #e069ff;
+  --gold:      #ffcf5c;
+  --danger:    #ff6f8f;
+  --good:      #63e0a0;
+
+  /* the active platform's colours, overridden per view */
+  --tint-a:    #402c66;
+  --tint-b:    #160f26;
+
+  --radius:    14px;
+  --radius-lg: 20px;
+  --radius-sm: 9px;
+
+  --focus-ring: 0 0 0 3px var(--accent), 0 14px 44px -10px rgba(168, 107, 255, 0.62);
+  --shadow-card: 0 10px 30px -14px rgba(0, 0, 0, 0.9);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 180ms;
+
+  --topbar-h: 76px;
+  --hints-h: 62px;
+  --gutter: clamp(24px, 3.4vw, 56px);
+
+  --font: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", -apple-system,
+          BlinkMacSystemFont, "Inter", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+/* Honour the OS setting, and the in-app toggle which sets data-motion="reduce". */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur: 1ms; }
+}
+:root[data-motion="reduce"] { --dur: 1ms; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Nothing in a couch UI should be text-selectable by accident. */
+  user-select: none;
+  cursor: default;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  margin: 0;
+}
+button { cursor: pointer; }
+
+/* We draw our own focus treatment; the UA ring fights the design. */
+:focus { outline: none; }
+:focus-visible { outline: none; }
+
+h1, h2, h3, h4 { margin: 0; font-weight: 650; letter-spacing: -0.02em; }
+p { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+
+/* --------------------------------------------------------- ambient backdrop */
+
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 85% at 12% -10%, color-mix(in oklab, var(--tint-a) 55%, transparent), transparent 62%),
+    radial-gradient(95% 70% at 92% 8%, color-mix(in oklab, var(--tint-b) 48%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--bg-2) 0%, var(--bg) 58%);
+  transition: background 420ms var(--ease);
+}
+
+/* A whisper of starfield, to earn the "galaxy" in galaxy purple. Hand-placed
+   so it reads as designed rather than as noise, weighted toward the top where
+   the nebula glow already is. Pure CSS: no image, no JS, no repaint cost.
+   Delete this whole rule if you would rather have flat purple. */
+.ambient::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-repeat: no-repeat;
+  background-image:
+    radial-gradient(1.6px 1.6px at 7% 11%,   rgba(255, 255, 255, 0.80), transparent 100%),
+    radial-gradient(1.1px 1.1px at 16% 27%,  rgba(226, 205, 255, 0.62), transparent 100%),
+    radial-gradient(1.3px 1.3px at 24% 8%,   rgba(255, 255, 255, 0.55), transparent 100%),
+    radial-gradient(1px 1px at 31% 38%,      rgba(206, 180, 255, 0.50), transparent 100%),
+    radial-gradient(1.8px 1.8px at 41% 16%,  rgba(255, 255, 255, 0.72), transparent 100%),
+    radial-gradient(1px 1px at 47% 31%,      rgba(232, 214, 255, 0.45), transparent 100%),
+    radial-gradient(1.2px 1.2px at 56% 6%,   rgba(255, 255, 255, 0.58), transparent 100%),
+    radial-gradient(1.5px 1.5px at 63% 23%,  rgba(240, 222, 255, 0.66), transparent 100%),
+    radial-gradient(1px 1px at 71% 13%,      rgba(255, 255, 255, 0.48), transparent 100%),
+    radial-gradient(1.7px 1.7px at 79% 33%,  rgba(255, 255, 255, 0.70), transparent 100%),
+    radial-gradient(1.1px 1.1px at 86% 9%,   rgba(219, 197, 255, 0.55), transparent 100%),
+    radial-gradient(1.3px 1.3px at 93% 25%,  rgba(255, 255, 255, 0.60), transparent 100%),
+    radial-gradient(1px 1px at 12% 52%,      rgba(210, 188, 255, 0.34), transparent 100%),
+    radial-gradient(1.2px 1.2px at 37% 61%,  rgba(255, 255, 255, 0.30), transparent 100%),
+    radial-gradient(1px 1px at 68% 55%,      rgba(226, 205, 255, 0.30), transparent 100%),
+    radial-gradient(1.4px 1.4px at 89% 66%,  rgba(255, 255, 255, 0.26), transparent 100%);
+}
+
+/* Fine grain over the gradients so large flat areas do not band on a TV. */
+.ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 3px 3px;
+  mix-blend-mode: overlay;
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 30;
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 var(--gutter);
+  background: linear-gradient(180deg, rgba(6, 7, 10, 0.92), rgba(6, 7, 10, 0.45) 70%, transparent);
+  backdrop-filter: blur(14px) saturate(130%);
+}
+
+.stage {
+  position: relative;
+  z-index: 10;
+  height: 100%;
+  padding: calc(var(--topbar-h) + 10px) 0 calc(var(--hints-h) + 18px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.stage::-webkit-scrollbar { width: 0; height: 0; }
+
+:root[data-motion="reduce"] .stage { scroll-behavior: auto; }
+
+.hints {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 30;
+  height: var(--hints-h);
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 0 var(--gutter);
+  background: linear-gradient(0deg, rgba(6, 7, 10, 0.95), rgba(6, 7, 10, 0.55) 60%, transparent);
+  backdrop-filter: blur(14px);
+  font-size: 15px;
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------- primitives */
+
+.mark {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.mark-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 0 18px -2px var(--accent);
+}
+
+.spacer { flex: 1 1 auto; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  color: var(--text-dim);
+  font-size: 15px;
+  white-space: nowrap;
+}
+.chip-strong { color: var(--text); background: var(--panel-2); }
+
+/* Focusable things share one focus treatment so the eye learns it instantly. */
+[data-nav] {
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  /* Keeps scrollIntoView from tucking the focused item under the fixed bars. */
+  scroll-margin: calc(var(--topbar-h) + 26px) var(--gutter) calc(var(--hints-h) + 26px);
+}
+[data-nav].is-focused {
+  box-shadow: var(--focus-ring);
+  z-index: 2;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 50px;
+  padding: 0 22px;
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.btn.is-focused { background: var(--panel-3); transform: translateY(-1px); }
+
+/* Both selectors carry the gradient on purpose. `.btn.is-focused` above is two
+   classes and would otherwise out-specify a bare `.btn-primary` and wipe the
+   gradient the instant the button took focus — which is the default state of
+   the Play button on every game page. */
+.btn-primary,
+.btn-primary.is-focused {
+  background: linear-gradient(135deg, #bb87ff, #8a4bf0);
+  border-color: transparent;
+  /* Near-black violet ink rather than white: on a mid purple this clears 5:1,
+     where white would only manage about 4. */
+  color: #1b0736;
+  font-weight: 750;
+}
+.btn-primary.is-focused { filter: brightness(1.1); }
+.btn-danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 35%, transparent); }
+.btn-ghost { background: transparent; border-color: var(--line-soft); color: var(--text-dim); }
+.btn-sm { height: 40px; padding: 0 15px; font-size: 15px; border-radius: var(--radius-sm); }
+.btn-icon { width: 46px; height: 46px; padding: 0; border-radius: 50%; font-size: 19px; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.4; }
+
+/* Controller glyphs used in the hint bar and inline prompts. */
+.glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+  color: #06080c;
+  background: #cfd8e4;
+  flex: none;
+}
+.glyph-a { background: #63e0a0; }
+.glyph-b { background: #ff8080; }
+.glyph-x { background: #7fb8ff; }
+.glyph-y { background: var(--gold); }
+.glyph-wide { width: auto; min-width: 26px; padding: 0 9px; border-radius: 13px; }
+
+.hint { display: inline-flex; align-items: center; gap: 9px; }
+
+.muted { color: var(--text-mute); }
+.dim { color: var(--text-dim); }
+.mono { font-family: var(--mono); font-size: 14px; }
+.nowrap { white-space: nowrap; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------- boot */
+
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  background: var(--bg);
+  transition: opacity 320ms var(--ease), visibility 320ms;
+}
+.boot.is-done { opacity: 0; visibility: hidden; }
+.boot-mark {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  background: linear-gradient(100deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.boot-sub { color: var(--text-mute); font-size: 15px; letter-spacing: 0.04em; }

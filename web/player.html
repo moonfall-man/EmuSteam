@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>EmuSteam player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #game { width: 100vw; height: 100vh; }
+
+  /* Transient confirmation for a hotkey. Nothing permanent sits over the game —
+     it appears for a moment, says what happened, and gets out of the way. */
+  #hint {
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    padding: 9px 18px;
+    border-radius: 999px;
+    background: rgba(10, 6, 20, 0.88);
+    border: 1px solid rgba(168, 107, 255, 0.55);
+    color: #f1ecfa;
+    font: 600 15px/1 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0.01em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 140ms ease, transform 140ms ease;
+    z-index: 999;
+    white-space: nowrap;
+  }
+  #hint.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* The hotkey cheat sheet, shown only while you hold the modifier. Discoverable
+     on demand, invisible the rest of the time — the loading screen turned out to
+     be no use for this, because with the core cached the game starts in well
+     under a second. */
+  #keys {
+    position: fixed;
+    inset: auto 24px 24px auto;
+    padding: 16px 20px;
+    border-radius: 14px; /* matches the shell's --radius */
+    background: rgba(8, 5, 16, 0.93);
+    border: 1px solid rgba(168, 107, 255, 0.4);
+    color: #cfc5e4;
+    font: 500 13.5px/1.5 "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    display: grid;
+    gap: 6px;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 120ms ease, transform 120ms ease;
+    pointer-events: none;
+    z-index: 998;
+  }
+  #keys.show { opacity: 1; transform: translateY(0); }
+  #keys div { display: grid; grid-template-columns: 150px auto; gap: 14px; }
+  #keys b {
+    font-family: "Cascadia Mono", ui-monospace, Consolas, monospace;
+    font-weight: 600;
+    font-size: 12.5px;
+    color: #a86bff;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+<!--
+  The in-app player runs in its own document on purpose.
+
+  EmulatorJS installs itself through window-level globals and has no documented
+  teardown, so reusing one page for a second game risks a stale worker, leaked
+  audio or a half-freed WASM heap. A fresh iframe per game makes "stop playing"
+  exactly equal to "remove the element", which the browser guarantees cleans up.
+
+  This document also owns the hotkeys, because it is the one with keyboard focus
+  while a game is running — the shell behind it never sees a key press.
+-->
+<div id="game"></div>
+<div id="hint" aria-live="polite"></div>
+<div id="keys">
+  <div><b>Esc / Sel+Start</b><span>Exit &mdash; keeps your place</span></div>
+  <div><b>F2 / Sel+A</b><span>Quick save</span></div>
+  <div><b>F4 / Sel+B</b><span>Quick load</span></div>
+  <div><b>Tab / Sel+R1</b><span id="ffmode-note">Fast forward</span></div>
+  <div><b>&minus; = / Sel+D-pad</b><span>Fast-forward speed</span></div>
+  <div><b>` / Sel+L1</b><span>Slow motion</span></div>
+  <div><b>P / Sel+X</b><span>Pause</span></div>
+</div>
+
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const gameId = params.get('id');
+  const system = params.get('system');
+  const token = params.get('t');
+  const title = params.get('title') || 'Game';
+  const art = params.get('art') || '';
+  const disc = params.get('disc') || '';
+  // Pick up a session that was left mid-play rather than booting from the logo.
+  const resume = params.get('resume') === '1';
+
+  const post = (type, payload) =>
+    parent.postMessage({ source: 'emusteam-player', type, ...payload }, location.origin);
+
+  if (!gameId || !system || !token) {
+    post('error', { message: 'The player was opened without enough information to start.' });
+    return;
+  }
+
+  // ---- transient on-screen feedback ---------------------------------------
+  const hintEl = document.getElementById('hint');
+  const keysEl = document.getElementById('keys');
+  let hintTimer = null;
+
+  /** Show/hide the hotkey cheat sheet. Held, never toggled. */
+  const showKeys = (on) => keysEl.classList.toggle('show', !!on);
+  function flash(text, ms = 1100) {
+    hintEl.textContent = text;
+    hintEl.classList.add('show');
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => hintEl.classList.remove('show'), ms);
+  }
+
+  // ---- nothing leaves this machine ----------------------------------------
+  //
+  // EmulatorJS calls cdn.emulatorjs.org/stable/data/version.json on every start
+  // to check for updates. There is no option to turn it off — it is skipped only
+  // for "-beta" builds — so it gets blocked here instead of patched out of the
+  // vendored file, which the next `npm run fetch-cores` would undo.
+  //
+  // Blocking rather than allowing keeps the claim true by construction: on a
+  // couch box with no internet this would otherwise hang until it timed out, and
+  // "this app makes no network requests" should not depend on an upstream
+  // library's good behaviour.
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const raw = typeof input === 'string' ? input : (input && input.url) || '';
+    let external = false;
+    try {
+      const u = new URL(raw, location.href);
+      external = u.protocol !== 'blob:' && u.protocol !== 'data:' && u.origin !== location.origin;
+    } catch { /* relative or opaque — same-origin by definition */ }
+
+    if (!external) return realFetch(input, init);
+    console.warn('[emusteam] blocked an external request from the player:', raw);
+    // A refusal rather than a rejection: callers that only handle `res.ok` would
+    // otherwise raise an unhandled rejection, and a 503 stops them cleanly.
+    return Promise.resolve(new Response('', { status: 503, statusText: 'Blocked by EmuSteam' }));
+  };
+
+  // ---- EmulatorJS configuration -------------------------------------------
+  window.EJS_player = '#game';
+  window.EJS_core = system;
+  window.EJS_pathtodata = '/cores/';
+  // The URL ends in "<gameId>.<ext>" rather than a bare "/rom" so that the game's
+  // in-game save is named after the game. EmulatorJS derives the .srm name from
+  // the last path segment with its extension stripped, so every game used to
+  // share one save file per core. Discs share a save deliberately — the extension
+  // is stripped, so every disc of one game maps to the same memory card.
+  const romExt = (() => {
+    const raw = (params.get('ext') || '').replace(/[^a-z0-9]/gi, '');
+    return raw ? `.${raw}` : '';
+  })();
+  window.EJS_gameUrl =
+    `/rom/${encodeURIComponent(gameId)}${romExt}?t=${encodeURIComponent(token)}` +
+    (disc ? `&disc=${encodeURIComponent(disc)}` : '');
+  window.EJS_gameName = title;
+  window.EJS_gameID = gameId;
+  window.EJS_startOnLoaded = true;
+  window.EJS_volume = 0.8;
+  window.EJS_color = '#a86bff';
+  if (art) window.EJS_backgroundImage = art;
+  // Turns off EmulatorJS's IndexedDB *caching* of ROMs, BIOSes and cores — we
+  // already serve those from disk, so a second copy in the browser profile is
+  // pure waste.
+  //
+  // It does NOT cover the game's own in-game saves. Those are a separate
+  // mechanism: the core mounts /data/saves as an emscripten IDBFS with
+  // autoPersist, so battery saves land in the browser profile's IndexedDB no
+  // matter what this flag says. Only save states (quick, numbered, suspend) go
+  // to data/states/ as real files.
+  window.EJS_disableDatabases = true;
+
+  window.EJS_ready = () => post('ready', {});
+  window.EJS_onGameStart = () => {
+    post('started', {});
+    if (resume) restoreSuspended();
+    else flash('Hold  Select  (or F1)  for hotkeys', 2800);
+  };
+
+  // A save state from EmulatorJS's own menu button still goes to disk.
+  window.EJS_onSaveState = (e) => {
+    if (e && e.state) persistState(e.state, '0').then(() => flash('State saved'));
+  };
+
+  // ---- state persistence --------------------------------------------------
+  //
+  // Raw bytes over /savestate, not base64 inside the JSON API. A Game Boy state
+  // is 60 KB and either way works; an N64 state is several megabytes, which
+  // base64 inflates by a third and pushed straight past the control API's 1 MB
+  // body cap. The server closed the connection and the browser reported it as
+  // "Failed to fetch" — so leaving an N64 game silently lost the session.
+  const stateUrl = (slot) =>
+    `/savestate?id=${encodeURIComponent(gameId)}&slot=${encodeURIComponent(slot)}`;
+
+  /** Read the server's error message when it has one — "HTTP 500" helps nobody. */
+  async function reasonFor(res) {
+    try {
+      const { error } = await res.json();
+      if (error) return error;
+    } catch { /* not JSON */ }
+    return `HTTP ${res.status}`;
+  }
+
+  async function persistState(bytes, slot) {
+    const res = await fetch(stateUrl(slot), {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream', 'x-emusteam-token': token },
+      // Copied, because the core is free to reuse its own buffer underneath us.
+      body: new Uint8Array(bytes),
+    });
+    if (!res.ok) throw new Error(await reasonFor(res));
+  }
+
+  const manager = () => window.EJS_emulator && window.EJS_emulator.gameManager;
+
+  async function quickSave() {
+    const gm = manager();
+    if (!gm) return;
+    if (gm.supportsStates && !gm.supportsStates()) {
+      flash('This core cannot save states');
+      return;
+    }
+    try {
+      await persistState(gm.getState(), 'quick');
+      flash('Quick saved');
+    } catch (err) {
+      flash('Quick save failed');
+      post('error', { message: 'Quick save failed: ' + err.message });
+    }
+  }
+
+  /** @returns {Promise<Uint8Array|null>} null when that slot holds nothing. */
+  async function readSlot(slot) {
+    const res = await fetch(stateUrl(slot), { headers: { 'x-emusteam-token': token } });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(await reasonFor(res));
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  async function quickLoad() {
+    const gm = manager();
+    if (!gm) return;
+    try {
+      const bytes = await readSlot('quick');
+      if (!bytes) {
+        flash('No quick save yet');
+        return;
+      }
+      gm.loadState(bytes);
+      flash('Quick loaded');
+    } catch (err) {
+      flash('Quick load failed');
+      post('error', { message: 'Quick load failed: ' + err.message });
+    }
+  }
+
+  // ---- suspend and resume -------------------------------------------------
+  //
+  // Leaving a game writes a state to the reserved 'suspend' slot and coming back
+  // reads it, so a game picks up mid-frame the way a console's sleep mode does.
+  // Nothing here is allowed to trap you in a game: if the state cannot be
+  // written, the exit still happens and the parent is told it did not suspend.
+  const SUSPEND_SLOT = 'suspend';
+
+  /** Restore the suspended session. Called once, from EJS_onGameStart. */
+  async function restoreSuspended() {
+    const gm = manager();
+    if (!gm) return;
+    try {
+      const bytes = await readSlot(SUSPEND_SLOT);
+      if (!bytes) {
+        // Raced with a "start over", or the file went away. A normal boot is the
+        // right outcome, not an error.
+        flash('Hold  Select  (or F1)  for hotkeys', 2800);
+        return;
+      }
+      gm.loadState(bytes);
+      flash('Picked up where you left off', 1800);
+    } catch (err) {
+      flash('Could not resume — starting from the beginning', 2600);
+      post('error', { message: 'Resume failed: ' + err.message });
+    }
+  }
+
+  let exiting = false;
+
+  /** Suspend the session, then leave. Bound to Esc and Select+Start. */
+  async function suspendAndExit() {
+    if (exiting) return; // a second press must not queue a second save
+    exiting = true;
+
+    const gm = manager();
+    if (!gm) {
+      post('exit', { suspended: false });
+      return;
+    }
+
+    // Freeze first: it makes the snapshot a clean single frame, stops the audio
+    // the instant you press the button, and makes the pause feel deliberate
+    // rather than like a stall while several megabytes are written.
+    try { gm.toggleMainLoop(0); } catch { /* not fatal */ }
+
+    if (gm.supportsStates && !gm.supportsStates()) {
+      post('exit', { suspended: false, reason: 'This core cannot save states.' });
+      return;
+    }
+
+    flash('Suspending…', 4000);
+    try {
+      await persistState(gm.getState(), SUSPEND_SLOT);
+      post('exit', { suspended: true });
+    } catch (err) {
+      // Losing the session is bad; being unable to leave is worse.
+      post('exit', { suspended: false, reason: err.message });
+    }
+  }
+
+  // ---- speed + pause ------------------------------------------------------
+  //
+  // How the fast-forward button behaves, chosen in Settings:
+  //
+  //   toggle       press to turn on, press again to turn off. Predictable, and
+  //                the only mode that works well as a two-button pad chord.
+  //   hold         only while held.
+  //   tap-or-hold  a quick tap locks it on, a longer hold is momentary.
+  //
+  // The tap window differs by device on purpose. A keyboard tap is ~80ms, but
+  // "tap" Select+R1 means pressing *and releasing two buttons*, which realistically
+  // takes 300-500ms — with one shared 250ms threshold, tap-to-lock was effectively
+  // impossible on a controller and the mode looked broken.
+  //
+  // test:hotkeys-begin — test/hotkeys.mjs extracts everything down to the
+  // matching end marker and drives it in Node with a fake pad and a fake clock.
+  // It has to: the poll loop below is requestAnimationFrame-driven, and a
+  // headless browser pane never runs rAF, so this is the only place the
+  // press/release edge logic is actually exercised. Two rules for this region:
+  // keep it free of DOM assumptions, and move the markers if the code moves.
+  const TAP_MS = { keyboard: 250, gamepad: 550 };
+
+  const mode = ['toggle', 'hold', 'tap-or-hold'].includes(params.get('ffmode'))
+    ? params.get('ffmode')
+    : 'tap-or-hold';
+
+  // 0 is the libretro convention for "uncapped", so it sorts naturally last.
+  const SPEEDS = [1.5, 2, 2.5, 3, 4, 8, 0];
+  const speedLabel = (r) => (Number(r) === 0 ? 'unlimited' : `${r}×`);
+
+  let ratio = Number(params.get('ff'));
+  if (!Number.isFinite(ratio) || ratio < 0) ratio = 2.5;
+
+  let fastForwarding = false;
+  let ffLocked = false;
+  let ffPressedAt = 0;
+  let ffPressedSource = 'keyboard';
+  let slowMotion = false;
+  let paused = false;
+
+  function applyFastForward(on) {
+    const gm = manager();
+    if (!gm || fastForwarding === on) return;
+    fastForwarding = on;
+    gm.setFastForwardRatio(ratio);
+    gm.toggleFastForward(on ? 1 : 0);
+  }
+
+  /**
+   * Called on press and release of the fast-forward binding.
+   * @param {boolean} down
+   * @param {'keyboard'|'gamepad'} source which device, for the tap window
+   */
+  function fastForwardButton(down, source = 'keyboard') {
+    // --- toggle: release does nothing at all ------------------------------
+    if (mode === 'toggle') {
+      if (!down) return;
+      ffLocked = !ffLocked;
+      applyFastForward(ffLocked);
+      flash(ffLocked ? `▶▶  ${speedLabel(ratio)}  on` : 'Fast forward off');
+      return;
+    }
+
+    // --- hold: purely momentary -------------------------------------------
+    if (mode === 'hold') {
+      applyFastForward(down);
+      if (down) flash(`▶▶  ${speedLabel(ratio)}`);
+      return;
+    }
+
+    // --- tap-or-hold ------------------------------------------------------
+    if (down) {
+      if (ffLocked) {
+        // Already locked on — this press turns it off.
+        ffLocked = false;
+        applyFastForward(false);
+        flash('Fast forward off');
+        ffPressedAt = 0;
+        return;
+      }
+      ffPressedAt = performance.now();
+      ffPressedSource = source;
+      applyFastForward(true);
+      flash(`▶▶  ${speedLabel(ratio)}`);
+      return;
+    }
+
+    if (!ffPressedAt) return; // release of the press that switched it off
+    const heldFor = performance.now() - ffPressedAt;
+    const window = TAP_MS[ffPressedSource] ?? TAP_MS.keyboard;
+    ffPressedAt = 0;
+
+    if (heldFor < window) {
+      ffLocked = true;
+      flash(`▶▶  ${speedLabel(ratio)}  locked`);
+    } else {
+      applyFastForward(false);
+    }
+  }
+
+  /** Step the multiplier. Persists, so setting it once is enough. */
+  function nudgeSpeed(delta) {
+    const index = SPEEDS.indexOf(ratio);
+    const next = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (index < 0 ? 2 : index) + delta))];
+    if (next === ratio) {
+      flash(`▶▶  ${speedLabel(ratio)}${delta > 0 ? '  (fastest)' : '  (slowest)'}`);
+      return;
+    }
+    ratio = next;
+
+    // The core only picks up a new ratio when fast forward is re-engaged, which
+    // is what EmulatorJS's own settings menu does too.
+    if (fastForwarding) {
+      applyFastForward(false);
+      applyFastForward(true);
+    }
+    flash(`▶▶  ${speedLabel(ratio)}${fastForwarding ? '' : '  (next time)'}`);
+
+    fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-emusteam-token': token },
+      body: JSON.stringify({ fastForwardRatio: ratio }),
+    }).catch(() => { /* the value still applies for this session */ });
+  }
+
+  function setSlowMotion(on) {
+    const gm = manager();
+    if (!gm || slowMotion === on) return;
+    slowMotion = on;
+    gm.setSlowMotionRatio(2.5);
+    gm.toggleSlowMotion(on ? 1 : 0);
+    if (on) flash('▷  Slow motion');
+  }
+
+  function togglePause() {
+    const gm = manager();
+    if (!gm) return;
+    paused = !paused;
+    gm.toggleMainLoop(paused ? 0 : 1);
+    flash(paused ? '❙❙  Paused' : '▶  Resumed', paused ? 60000 : 900);
+  }
+
+  // ---- keyboard hotkeys ---------------------------------------------------
+  // Tab is a *button*, not a hold-toggle: fastForwardButton decides tap vs hold.
+  const HOLD_KEYS = {
+    Tab: (down) => fastForwardButton(down, 'keyboard'),
+    Backquote: setSlowMotion,
+    F1: showKeys,
+  };
+  const TAP_KEYS = {
+    Escape: suspendAndExit,
+    F2: quickSave,
+    F4: quickLoad,
+    KeyP: togglePause,
+    Equal: () => nudgeSpeed(1),
+    Minus: () => nudgeSpeed(-1),
+    NumpadAdd: () => nudgeSpeed(1),
+    NumpadSubtract: () => nudgeSpeed(-1),
+  };
+
+  window.addEventListener('keydown', (ev) => {
+    if (ev.ctrlKey || ev.altKey || ev.metaKey) return;
+
+    if (HOLD_KEYS[ev.code]) {
+      // Tab would otherwise move focus out of the canvas. Stop propagation too:
+      // these keys are ours, and the core should never also see them as input.
+      ev.preventDefault();
+      ev.stopPropagation();
+      // An auto-repeat means the key is *still held*, not pressed again. Passing
+      // it on would restart the tap timer ~30 times a second once the OS repeat
+      // kicks in, so any hold longer than about half a second would measure as a
+      // tap and lock fast forward on instead of releasing it.
+      if (!ev.repeat) HOLD_KEYS[ev.code](true);
+      return;
+    }
+    if (TAP_KEYS[ev.code]) {
+      if (ev.repeat) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      TAP_KEYS[ev.code]();
+    }
+  }, { capture: true });
+
+  window.addEventListener('keyup', (ev) => {
+    if (HOLD_KEYS[ev.code]) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      HOLD_KEYS[ev.code](false);
+    }
+  }, { capture: true });
+
+  // Releasing focus mid-hold would otherwise leave the game stuck at 2.5x.
+  window.addEventListener('blur', () => {
+    // A momentary hold is cancelled; a deliberate lock survives losing focus.
+    if (!ffLocked) {
+      ffPressedAt = 0;
+      applyFastForward(false);
+    }
+    setSlowMotion(false);
+    showKeys(false);
+  });
+
+  // ---- gamepad hotkeys ----------------------------------------------------
+  // Select is the modifier, matching RetroArch and RetroPie. Note the game still
+  // receives the individual button presses — suppressing them would mean
+  // intercepting EmulatorJS's own input path, which is not worth the fragility.
+  //
+  //   Select + Start  stop        Select + R1  fast forward (hold)
+  //   Select + A      quick save  Select + L1  slow motion  (hold)
+  //   Select + B      quick load  Select + X   pause
+  const SELECT = 8;
+  const COMBOS = {
+    9: suspendAndExit,           // Start
+    0: quickSave,                // A
+    1: quickLoad,                // B
+    2: togglePause,              // X
+    12: () => nudgeSpeed(1),     // D-pad up   — faster
+    13: () => nudgeSpeed(-1),    // D-pad down — slower
+  };
+  // R1 is the fast-forward button (tap to lock, hold for momentary); L1 is slow motion.
+  const HOLD_COMBOS = {
+    5: (down) => fastForwardButton(down, 'gamepad'),
+    4: setSlowMotion,
+  };
+
+  const wasDown = {};
+  let modifierWasHeld = false;
+
+  (function pollHotkeys() {
+    requestAnimationFrame(pollHotkeys);
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+
+    let modifier = false;
+    const down = {};
+    for (const pad of pads) {
+      if (!pad || !pad.connected) continue;
+      if (pad.buttons[SELECT] && pad.buttons[SELECT].pressed) modifier = true;
+      for (const index of [...Object.keys(COMBOS), ...Object.keys(HOLD_COMBOS)]) {
+        const button = pad.buttons[Number(index)];
+        if (button && button.pressed) down[index] = true;
+      }
+    }
+
+    for (const [index, fn] of Object.entries(COMBOS)) {
+      const active = modifier && !!down[index];
+      if (active && !wasDown[index]) fn();
+      wasDown[index] = active;
+    }
+    for (const [index, fn] of Object.entries(HOLD_COMBOS)) {
+      // Edge-triggered, exactly like COMBOS above: fn() means "just pressed" or
+      // "just released", never "still down". Calling it every frame restarted
+      // the tap timer 60 times a second, so every hold measured as a ~16ms tap
+      // and locked fast forward on — and the press meant to unlock it re-locked
+      // it on the very next frame, which made it impossible to turn off.
+      const active = modifier && !!down[index];
+      if (active !== !!wasDown[index]) fn(active);
+      wasDown[index] = active;
+    }
+
+    // Holding the modifier on its own is how you find out what it does.
+    if (modifier !== modifierWasHeld) {
+      modifierWasHeld = modifier;
+      showKeys(modifier);
+    }
+  })();
+  // test:hotkeys-end
+
+  document.getElementById('ffmode-note').textContent = {
+    toggle: 'Fast forward — press on, press off',
+    hold: 'Fast forward — only while held',
+    'tap-or-hold': 'Fast forward — tap to lock, hold for a burst',
+  }[mode];
+
+  const script = document.createElement('script');
+  script.src = '/cores/loader.js';
+  script.onerror = () =>
+    post('error', { message: 'The in-app player is not installed. Run: npm run fetch-cores' });
+  document.body.appendChild(script);
+})();
+</script>
+</body>
+</html>

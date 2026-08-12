@@ -1,0 +1,24 @@
+{
+  "name": "emusteam",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A couch-first, Steam-style launcher for emulators and ROMs. Zero dependencies.",
+  "type": "module",
+  "bin": {
+    "emusteam": "./src/main.mjs"
+  },
+  "main": "./src/main.mjs",
+  "scripts": {
+    "start": "node src/main.mjs",
+    "windowed": "node src/main.mjs --no-fullscreen",
+    "server": "node src/main.mjs --no-open",
+    "scan": "node src/main.mjs --scan-only",
+    "test": "node test/smoke.mjs && node test/hotkeys.mjs",
+    "fetch-cores": "node tools/fetch-cores.mjs",
+    "fetch-art": "node tools/fetch-art.mjs"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "license": "MIT"
+}
