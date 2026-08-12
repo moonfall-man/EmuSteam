@@ -219,6 +219,10 @@ It reports **counts, not a percentage**, on purpose: knowing the total means
 walking the whole tree first, which *is* the scan, so a percentage would be either
 a second full pass or a fabrication.
 
+MIT licensed. EmuSteam bundles no third-party code; what the two optional
+download commands fetch, and under which licences, is listed in
+[NOTICE.md](NOTICE.md).
+
 ## Quick start
 
 ```bash

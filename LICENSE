@@ -19,18 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-EmuSteam bundles no third-party code. Two optional commands download assets:
-
-  npm run fetch-cores   EmulatorJS and libretro cores. EmulatorJS is GPL-3.0;
-                        the cores carry their own upstream licences.
-  npm run fetch-art     Box art from the libretro thumbnail archive (community
-                        scans, used as-is), and console icons from
-                        libretro/retroarch-assets, which are licensed
-                        CC BY 4.0 — attribution: "RetroArch assets by the
-                        libretro team, CC BY 4.0".
-
-Neither runs unless you ask it to. ROMs and emulator builds are not included and
-are not ours to distribute.
