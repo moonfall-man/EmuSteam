@@ -10,7 +10,7 @@ import { onAction, BUTTON_ACTIONS, BUTTON_NAMES } from './../input.mjs';
 // The in-app catalogue outgrew this file and lives in its own module.
 import { inAppPanel } from './inapp.mjs';
 import {
-  addSourceFlow, addEmulatorFlow, editEmulatorFlow,
+  addSourceFlow, addEmulatorFlow, editEmulatorFlow, importRomsFlow,
   pickPlatformModal, pickPlatformEmulatorFlow, pickCoreFlow, rescan,
   reportWorkspaceChanges, reportOrganized,
 } from './../flows.mjs';
@@ -261,6 +261,30 @@ function libraryPanel(ctx) {
       'section',
       { class: 'panel' },
       h('h2', { class: 'panel-title', text: 'ROM folders' }),
+      h('p', {
+        class: 'panel-note',
+        text: 'Import copies or moves games into roms/ and files them by system — pick a pile of files or a whole folder and it works out what each one is. Or point at a library you keep elsewhere and leave it where it is.',
+      }),
+      h(
+        'div',
+        { class: 'row-actions', style: { marginBottom: '18px' } },
+        h('button', {
+          class: 'btn btn-primary',
+          nav: true,
+          'data-nav-key': 'import-files',
+          text: '↓  Import ROMs…',
+          title: 'Pick ROM files from anywhere; they get filed into roms/ by system',
+          onClick: async () => { if (await importRomsFlow('files')) refresh(); },
+        }),
+        h('button', {
+          class: 'btn',
+          nav: true,
+          'data-nav-key': 'import-folder',
+          text: 'Import a whole folder…',
+          title: 'Walks the folder and imports every ROM it finds',
+          onClick: async () => { if (await importRomsFlow('folder')) refresh(); },
+        }),
+      ),
       h('p', {
         class: 'panel-note',
         text: `A folder in roms/ appears for each system you have an emulator for — those are marked "auto" and manage themselves. You can also add folders anywhere else on disk. Each folder belongs to one system, which is how we know a .bin is a PS1 track and not a Genesis cart.`,

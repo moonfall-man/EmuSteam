@@ -18,13 +18,14 @@ import {
 } from './launcher.mjs';
 import { assignArt, clearArt, manualArtFor, manualArtIndex, isImagePath } from './art.mjs';
 import {
-  listDirectory, pickFolder, pickFile, nativeDialogsAvailable, defaultBrowseStart,
+  listDirectory, pickFolder, pickFile, pickFiles, nativeDialogsAvailable, defaultBrowseStart,
 } from './filesystem.mjs';
 import { fromPortable, toPortable, commonRomLocations, appRoot, dataRoot } from './paths.mjs';
 import { emulatorsForPlatform, emulatorExists, isPlatformPlayable } from './emulators.mjs';
 import { installedCores, wasmInfoFor, wasmCatalogue } from './cores.mjs';
 import { playableDiscFile } from './discs.mjs';
 import { fetchArtwork } from './artfetch.mjs';
+import { planImport, importRoms } from './importer.mjs';
 import {
   reconcileRomFolders, workspaceSummary, discoverEmulators, tidyWorkspace, planOrganize,
   romsRoot, emulatorsRoot, folderNameFor,
@@ -475,6 +476,45 @@ export async function handleApi(method, url, body) {
       const file = path.join(saveStateDir(game.id), `${slot}.state`);
       if (!safeExists(file)) throw notFound('No save state in that slot.');
       return { data: fs.readFileSync(file).toString('base64'), slot };
+    }
+
+    case 'POST /api/import/pick': {
+      // The dialog runs on the server because that is where the filesystem is —
+      // a browser hands over file contents but never real paths, and real paths
+      // are the whole reason this can move a 600 MB image instantly.
+      if (!nativeDialogsAvailable()) throw bad('No native file dialog available on this system.');
+      const paths = body?.kind === 'folder'
+        ? [pickFolder({ title: 'Pick a folder of ROMs to import' })].filter(Boolean)
+        : pickFiles({ title: 'Pick ROMs to import' });
+      if (!paths.length) return { cancelled: true, plan: null };
+      return { cancelled: false, paths, plan: planImport(paths) };
+    }
+
+    case 'POST /api/import/plan': {
+      const paths = Array.isArray(body?.paths) ? body.paths.map(String) : [];
+      if (!paths.length) throw bad('No files given to import.');
+      return { plan: planImport(paths) };
+    }
+
+    case 'POST /api/import/run': {
+      const paths = Array.isArray(body?.paths) ? body.paths.map(String) : [];
+      if (!paths.length) throw bad('No files given to import.');
+      const mode = body?.mode === 'move' ? 'move' : 'copy';
+
+      const result = importRoms(paths, { mode, onProgress: (p) => broadcast('import', p) });
+
+      // Register any system folder the import just created, *before* scanning.
+      // Only registered folders are scan sources, so importing the first game for
+      // a system would otherwise file it correctly and leave it invisible.
+      reconcileRomFolders(loadConfig());
+
+      // Filed games are only useful once they are in the library.
+      const library = await scanLibraryAsync(loadConfig(), {
+        onProgress: (p) => broadcast('scan', p),
+      });
+      saveLibrary(library);
+      broadcast('library', { scannedAt: library.scannedAt, count: library.games.length });
+      return { ...result, games: library.games.length };
     }
 
     case 'POST /api/art/fetch': {

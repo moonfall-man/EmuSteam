@@ -263,6 +263,24 @@ Then, in the app:
 That's the whole setup — there's no "add ROM folder" step for the common case,
 and the first emulator you add for a system becomes its default.
 
+### Importing a pile of ROMs
+
+**Settings → ROM folders → Import ROMs…** Pick a stack of files, or point it at a
+whole folder and let it walk the tree. Every file is identified, sorted into
+`roms/<System>/`, and added to your library — no file manager, no dragging things
+into the right subfolder.
+
+It shows you what it is about to do first — *"14 games, 2.1 GB into GB (3), PS1 (1),
+SNES (10). 2 files will be left alone."* — and asks whether to **copy** or **move**.
+Copy is offered first on purpose: these are files you put somewhere deliberately,
+and taking them away should never be a side effect of pressing a button labelled
+"import".
+
+Nothing is ever overwritten. A game already in the library is skipped and named,
+and if a move fails halfway through a multi-file disc it puts back what it already
+moved rather than leaving half a game behind. Moving across drives is handled by
+copying and verifying the size before deleting the original.
+
 ### It organises itself
 
 A `roms/<System>/` folder exists for either of two reasons, and either alone is

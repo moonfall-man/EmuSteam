@@ -78,6 +78,9 @@ export const api = {
   listGameStates: (gameId) => request('GET', `/api/state/list?gameId=${encodeURIComponent(gameId)}`),
   clearGameState: (gameId, slot) => request('POST', '/api/state/clear', { gameId, slot }),
   fetchArt: (opts = {}) => request('POST', '/api/art/fetch', opts),
+  pickImport: (kind) => request('POST', '/api/import/pick', { kind }),
+  planImport: (paths) => request('POST', '/api/import/plan', { paths }),
+  runImport: (paths, mode) => request('POST', '/api/import/run', { paths, mode }),
 
   reconcileWorkspace: () => request('POST', '/api/workspace/reconcile', {}),
   organizeWorkspace: () => request('POST', '/api/workspace/organize', {}),
@@ -104,7 +107,7 @@ export function artUrl(artPath) {
  */
 export function subscribeEvents(onEvent) {
   const source = new EventSource(`/events?t=${encodeURIComponent(TOKEN)}`);
-  for (const name of ['session', 'scan', 'library', 'art']) {
+  for (const name of ['session', 'scan', 'library', 'art', 'import']) {
     source.addEventListener(name, (ev) => {
       let data = {};
       try {

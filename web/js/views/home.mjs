@@ -168,7 +168,9 @@ function onboarding(ctx) {
         1,
         hasSources,
         hasSources ? `${state.sources.length} ROM folder${state.sources.length === 1 ? '' : 's'} added` : 'Add a ROM folder',
-        hasSources ? 'Add another, or move on to step 2.' : 'For example D:\\ROMs\\N64 — you tell us which system it is.',
+        hasSources
+          ? 'Add another, or move on to step 2.'
+          : 'Point at a library you already keep — or use Import in Settings to copy a pile of ROMs in and have them sorted for you.',
         async () => {
           if (await addSourceFlow(state)) refresh();
         },

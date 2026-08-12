@@ -606,6 +606,10 @@ async function boot() {
       onArtEvent(data);
       return;
     }
+    if (event === 'import') {
+      onImportEvent(data);
+      return;
+    }
     if (event === 'session') {
       // In-app sessions never get the "Now playing" overlay. That screen exists
       // to explain that an external program has taken the display — when the game
@@ -753,4 +757,39 @@ function onArtEvent(data) {
 function fmtBytes(n) {
   if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+/** Bulk-import progress, in the same card as scanning and artwork. */
+function onImportEvent(data) {
+  const bar = document.getElementById('scanbar');
+  const title = document.getElementById('scanbar-title');
+  const sub = document.getElementById('scanbar-sub');
+  if (!bar || !title || !sub) return;
+
+  clearTimeout(scanHideTimer);
+  const verb = data.mode === 'move' ? 'Moving' : 'Copying';
+
+  if (data.phase === 'done') {
+    const n = data.count || 0;
+    title.textContent = n ? `Imported ${n} game${n === 1 ? '' : 's'}` : 'Nothing imported';
+    const parts = [];
+    if (data.bytes) parts.push(fmtBytes(data.bytes));
+    if (data.createdFolders?.length) parts.push(`new: ${data.createdFolders.join(', ')}`);
+    if (data.skipped?.length) parts.push(`${data.skipped.length} skipped`);
+    sub.textContent = parts.join(' · ');
+    bar.classList.add('show', 'is-done');
+    scanHideTimer = setTimeout(() => bar.classList.remove('show', 'is-done'), 5000);
+    return;
+  }
+
+  bar.classList.remove('is-done');
+  bar.classList.add('show');
+  if (data.phase === 'start') {
+    title.textContent = `${verb} ${data.total} game${data.total === 1 ? '' : 's'}…`;
+    sub.textContent = `${fmtBytes(data.bytes)} into ${data.systems} system${data.systems === 1 ? '' : 's'}`;
+    return;
+  }
+  const pct = data.total ? Math.round((data.done / data.total) * 100) : 0;
+  title.textContent = `${verb} games… ${pct}%`;
+  sub.textContent = `${data.done} of ${data.total} — ${data.label || ''} → ${data.folder || ''}`;
 }

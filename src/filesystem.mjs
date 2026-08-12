@@ -138,6 +138,65 @@ if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Outpu
   return null;
 }
 
+/**
+ * Pick several files at once, for importing a pile of ROMs.
+ *
+ * Separate from pickFile rather than a flag on it, because every platform needs a
+ * different incantation for multi-select and the return type differs (a list, not
+ * a string). One newline-delimited path per line comes back from all three.
+ *
+ * @returns {string[]} chosen files; empty if cancelled or unsupported
+ */
+export function pickFiles({ initial = '', title = 'Select files' } = {}) {
+  const lines = (out) => String(out || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (process.platform === 'win32') {
+    const out = runPowerShellDialog(
+      `
+Add-Type -AssemblyName System.Windows.Forms | Out-Null
+$dlg = New-Object System.Windows.Forms.OpenFileDialog
+$dlg.Title = ${psQuote(title)}
+$dlg.Filter = 'All files (*.*)|*.*'
+$dlg.Multiselect = $true
+if ($env:EMUSTEAM_INITIAL -and (Test-Path -LiteralPath $env:EMUSTEAM_INITIAL)) {
+  $dlg.InitialDirectory = $env:EMUSTEAM_INITIAL
+}
+if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { $dlg.FileNames | ForEach-Object { Write-Output $_ } }
+`.trim(),
+      initial,
+    );
+    return lines(out);
+  }
+
+  if (process.platform === 'darwin') {
+    const res = spawnSync(
+      'osascript',
+      ['-e',
+        'set out to ""\n'
+        + `set picked to (choose file with prompt ${asQuote(title)} with multiple selections allowed)\n`
+        + 'repeat with f in picked\n'
+        + '  set out to out & POSIX path of f & linefeed\n'
+        + 'end repeat\n'
+        + 'return out'],
+      { encoding: 'utf8', timeout: DIALOG_TIMEOUT_MS },
+    );
+    return res.status === 0 ? lines(res.stdout) : [];
+  }
+
+  if (which('zenity')) {
+    const res = spawnSync(
+      'zenity',
+      ['--file-selection', '--multiple', '--separator=\n', `--title=${title}`],
+      { encoding: 'utf8', timeout: DIALOG_TIMEOUT_MS },
+    );
+    return res.status === 0 ? lines(res.stdout) : [];
+  }
+  return [];
+}
+
 /** PowerShell single-quoted literal. */
 function psQuote(s) {
   return `'${String(s).replace(/'/g, "''")}'`;

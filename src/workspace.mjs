@@ -34,6 +34,13 @@ export const emulatorsRoot = path.join(workspaceRoot, 'emulators');
 
 const ILLEGAL = /[\\/:*?"<>|]+/g;
 
+// Kept in step with the scanner's own list: these are art when they sit beside
+// games, not games themselves.
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif', '.bmp']);
+
+/** PICO-8 carts are PNGs, and are always named "cart.p8.png". */
+const PICO8_CART = /\.p8\.png$/i;
+
 /**
  * Filesystem-safe folder name for a platform. Prefers an explicit `folder` in
  * the catalogue, else the short name — "GBA", "N64", "Genesis".
@@ -266,6 +273,46 @@ export function discoverEmulators(config) {
 }
 
 /**
+ * Which system does this file belong to, and how do we know?
+ *
+ * One place for the rule, used both by the loose-file organiser and by importing
+ * from outside the workspace. An unambiguous extension names its own system; an
+ * ambiguous one gets its header read; anything else is left alone.
+ *
+ * @param {string} absPath
+ * @returns {{platform:string|null, evidence:string|null, reason:string|null}}
+ */
+export function classifyRomFile(absPath) {
+  const name = path.basename(absPath);
+  const ext = path.extname(name).toLowerCase();
+
+  if (!ext || isDocumentationFile(name)) {
+    return { platform: null, evidence: null, reason: 'Not a ROM.' };
+  }
+
+  // .png means two things. PICO-8 carts are PNGs — and are always named
+  // "cart.p8.png" — while every other .png beside a ROM is box art. Without this,
+  // a cover.png sitting next to your games gets filed as a PICO-8 game, which is
+  // the same trap .md had (Markdown vs Genesis) and wants the same answer: judge
+  // by the naming convention, not the extension alone.
+  if (IMAGE_EXTS.has(ext) && !PICO8_CART.test(name)) {
+    return { platform: null, evidence: null, reason: 'This is an image, not a game.' };
+  }
+
+  const byExt = UNAMBIGUOUS_EXTS.get(ext) || null;
+  if (byExt) return { platform: byExt, evidence: null, reason: null };
+
+  const found = identifyDiscImage(absPath);
+  if (found) return { platform: found.platform, evidence: found.evidence, reason: null };
+
+  return {
+    platform: null,
+    evidence: null,
+    reason: `Nothing in this ${ext} identifies which system it is for.`,
+  };
+}
+
+/**
  * ROMs dropped straight into roms/ instead of into a system subfolder.
  *
  * This is the obvious thing to do and the one thing that silently does not work:
@@ -296,16 +343,7 @@ export function looseRomFiles(config) {
     // documentation by name and let a real "Sonic.md" through.
     .filter((file) => file.ext && !isDocumentationFile(file.name))
     .map((file) => {
-      let platform = UNAMBIGUOUS_EXTS.get(file.ext) || null;
-      let evidence = null;
-      if (!platform) {
-        // Ambiguous extension: look inside before giving up on it.
-        const found = identifyDiscImage(path.join(romsRoot, file.name));
-        if (found) {
-          platform = found.platform;
-          evidence = found.evidence;
-        }
-      }
+      const { platform, evidence } = classifyRomFile(path.join(romsRoot, file.name));
       return {
         name: file.name,
         ext: file.ext,

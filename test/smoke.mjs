@@ -484,6 +484,106 @@ try {
   await call('POST', '/api/emulators/remove', { id: gbEmuId });
   await call('POST', '/api/scan');
 
+  section('bulk import');
+  {
+    // Driven entirely over HTTP, never by importing src/importer.mjs here.
+    //
+    // That is not a style preference. This process has no EMUSTEAM_WORKSPACE set —
+    // only the spawned server does — so calling the importer in-process resolves
+    // roms/ to the *real* repository and writes fixtures into the developer's own
+    // library. It did exactly that once, and only the never-overwrite rule stopped
+    // it clobbering a real game. The API is the only route guaranteed to land
+    // inside the throwaway workspace.
+    const incoming = path.join(tmpRoot, 'incoming');
+    fs.mkdirSync(path.join(incoming, 'Nested'), { recursive: true });
+
+    const discImg = (marks) => {
+      const buf = Buffer.alloc(64 * 1024);
+      for (const [at, text] of marks) buf.write(text, at, 'latin1');
+      return buf;
+    };
+    const RAWSEC = 16 * 2352 + 24;
+    fs.writeFileSync(path.join(incoming, 'Bulk Import Test (USA).sfc'), 'x');
+    fs.writeFileSync(path.join(incoming, 'Nested', 'Bulk Nested (World).gb'), 'x');
+    fs.writeFileSync(path.join(incoming, 'readme.txt'), 'notes');
+    fs.writeFileSync(path.join(incoming, 'cover.png'), 'img');
+    fs.writeFileSync(path.join(incoming, 'Bulk Cart.p8.png'), 'cart');
+    fs.writeFileSync(path.join(incoming, 'Bulk Mystery.bin'), Buffer.alloc(2048, 9));
+    fs.writeFileSync(path.join(incoming, 'Bulk Disc (USA).bin'),
+      discImg([[RAWSEC, 'CD001'], [RAWSEC + 8, 'PLAYSTATION    ']]));
+    fs.writeFileSync(path.join(incoming, 'Bulk Disc (USA).cue'),
+      'FILE "Bulk Disc (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n');
+
+    r = await call('POST', '/api/import/plan', { paths: [incoming] });
+    const plan = r.json.plan;
+    const folderOf = (name) => plan.groups.find((g) => g.name === name)?.folder;
+    check('a plan walks nested folders', folderOf('Bulk Nested (World).gb') === 'GB',
+      JSON.stringify(plan.groups.map((g) => `${g.folder}/${g.name}`)));
+    check('and routes by extension', folderOf('Bulk Import Test (USA).sfc') === 'SNES');
+    check('and by disc header when the extension is ambiguous',
+      folderOf('Bulk Disc (USA).cue') === 'PS1', JSON.stringify(plan.groups));
+    check('a cue brings its track along as one group',
+      plan.groups.find((g) => g.name === 'Bulk Disc (USA).cue')?.files.length === 2);
+    check('the track is not also imported on its own',
+      !plan.groups.some((g) => g.name === 'Bulk Disc (USA).bin'));
+
+    // .png means two things: box art, and a PICO-8 cart. Judged by name rather
+    // than extension — otherwise every cover.png beside your games gets filed as
+    // a PICO-8 title.
+    check('a plain .png is treated as art, not a PICO-8 game',
+      plan.skipped.some((x) => x.name === 'cover.png' && /image/i.test(x.reason)),
+      JSON.stringify(plan.skipped));
+    check('but a real .p8.png cart is imported', folderOf('Bulk Cart.p8.png') === 'PICO-8');
+    check('documentation and unidentifiable files are skipped with reasons',
+      plan.skipped.some((x) => x.name === 'readme.txt')
+        && plan.skipped.some((x) => x.name === 'Bulk Mystery.bin'), JSON.stringify(plan.skipped));
+
+    const looseBefore = fs.readdirSync(incoming).length;
+    r = await call('POST', '/api/import/run', { paths: [incoming], mode: 'copy' });
+    check('copy imports every planned game', r.json.imported.length === plan.groups.length,
+      `${r.json.imported.length} of ${plan.groups.length}: ${JSON.stringify(r.json.skipped)}`);
+    check('and leaves the originals where they were',
+      fs.readdirSync(incoming).length === looseBefore);
+    check('the cue and its track both landed',
+      fs.existsSync(path.join(workspaceRoot, 'roms', 'PS1', 'Bulk Disc (USA).cue'))
+        && fs.existsSync(path.join(workspaceRoot, 'roms', 'PS1', 'Bulk Disc (USA).bin')));
+    check('imported games reach the library without a separate rescan',
+      (await call('GET', '/api/state')).json.games.some((g) => /Bulk Import Test/.test(g.title)),
+      String(r.json.games));
+
+    r = await call('POST', '/api/import/run', { paths: [incoming], mode: 'copy' });
+    check('importing the same pile again overwrites nothing',
+      r.json.imported.length === 0 && r.json.skipped.length >= plan.groups.length,
+      `imported ${r.json.imported.length}, skipped ${r.json.skipped.length}`);
+    check('and says which file was in the way',
+      r.json.skipped.some((x) => /already exists/.test(x.reason)),
+      JSON.stringify(r.json.skipped[0]));
+
+    // Move takes the original with it; copy never does.
+    const solo = path.join(tmpRoot, 'solo');
+    fs.mkdirSync(solo, { recursive: true });
+    fs.writeFileSync(path.join(solo, 'Bulk Moved (USA).gb'), 'x');
+    r = await call('POST', '/api/import/run', { paths: [solo], mode: 'move' });
+    check('move files the game and removes the original',
+      r.json.imported.length === 1
+        && !fs.existsSync(path.join(solo, 'Bulk Moved (USA).gb'))
+        && fs.existsSync(path.join(workspaceRoot, 'roms', 'GB', 'Bulk Moved (USA).gb')),
+      JSON.stringify(r.json));
+
+    check('an empty selection is refused',
+      (await call('POST', '/api/import/run', { paths: [] })).status === 400);
+    check('importing needs a token',
+      (await fetch(base + '/api/import/run', { method: 'POST' })).status === 401);
+
+    // Reset: a later section asserts exactly which system folders exist.
+    for (const dir of ['SNES', 'PS1', 'PICO-8', 'GB']) {
+      fs.rmSync(path.join(workspaceRoot, 'roms', dir), { recursive: true, force: true });
+    }
+    fs.rmSync(incoming, { recursive: true, force: true });
+    fs.rmSync(solo, { recursive: true, force: true });
+    await call('POST', '/api/scan');
+  }
+
   section('artwork name matching');
   {
     // Box art is indexed by the original No-Intro filename, so the exact stem has

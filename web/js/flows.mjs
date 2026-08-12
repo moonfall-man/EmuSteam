@@ -537,3 +537,74 @@ export async function rescan() {
     return false;
   }
 }
+
+/**
+ * Import ROMs from anywhere on disk.
+ *
+ * Shows what it *would* do before it does anything, and asks whether to copy or
+ * move. Copy is offered first on purpose: these are files someone put somewhere
+ * deliberately, and taking them away should never be a side effect of clicking a
+ * button labelled "import".
+ *
+ * @returns {Promise<boolean>} whether anything was imported
+ */
+export async function importRomsFlow(kind = 'files') {
+  let picked;
+  try {
+    picked = await api.pickImport(kind);
+  } catch (err) {
+    toast.error(err.message);
+    return false;
+  }
+  if (picked.cancelled) return false;
+
+  const plan = picked.plan;
+  if (!plan.groups.length) {
+    const why = plan.skipped.length
+      ? `Nothing there looked like a ROM. ${plan.skipped[0].reason}`
+      : 'Nothing there looked like a ROM.';
+    toast.error(why);
+    return false;
+  }
+
+  const byFolder = new Map();
+  for (const g of plan.groups) byFolder.set(g.folder, (byFolder.get(g.folder) || 0) + 1);
+  const breakdown = [...byFolder.entries()]
+    .map(([folder, n]) => `${folder} (${n})`)
+    .join(', ');
+  const size = plan.bytes >= (1 << 30)
+    ? `${(plan.bytes / (1 << 30)).toFixed(1)} GB`
+    : `${Math.round(plan.bytes / (1 << 20))} MB`;
+
+  const mode = await chooseModal({
+    title: `Import ${plan.groups.length} game${plan.groups.length === 1 ? '' : 's'}?`,
+    note: `${size} into ${breakdown}.`
+      + (plan.skipped.length ? ` ${plan.skipped.length} file(s) will be left alone.` : '')
+      + ' Existing files are never overwritten.',
+    options: [
+      {
+        id: 'copy',
+        title: 'Copy them in',
+        note: 'Your originals stay exactly where they are. Uses disc space twice.',
+        selected: true,
+      },
+      {
+        id: 'move',
+        title: 'Move them in',
+        note: 'Faster and uses no extra space, but the files leave their current folder.',
+      },
+    ],
+  });
+  if (!mode) return false;
+
+  try {
+    const result = await api.runImport(picked.paths, mode);
+    if (result.skipped?.length) {
+      toast.error(`${result.skipped.length} skipped — ${result.skipped[0].reason}`);
+    }
+    return result.imported.length > 0;
+  } catch (err) {
+    toast.error(err.message);
+    return false;
+  }
+}
