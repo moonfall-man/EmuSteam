@@ -1,17 +1,29 @@
 // Uploading ROMs from the browser: drag them onto the window, or pick them.
 //
-// This is the route that works from anywhere — including a phone or a laptop
-// pointed at the machine running EmuSteam. The native file dialog in Settings is
-// better when you are sitting at that machine, because it can move a file on disk
-// instead of sending its bytes over HTTP; this one sends bytes, which is the only
-// thing a browser can do.
+// Dragging is the nicest gesture there is for "put these here", and that is the
+// whole reason this exists. It has one real cost: a browser hands over file
+// *contents* and never paths, so every dropped byte is copied through HTTP into
+// roms/ — which for a 3 GB disc image means a wait and a second copy on disk until
+// you delete the original.
+//
+// So this is the right tool for a handful of games, and Settings → Import from
+// this PC is the right tool for a whole collection: a native dialog gives real
+// paths, which means it can *move* a file instantly instead of copying it. Large
+// drops say so rather than quietly costing you the disc space.
+//
+// (It also happens to be the only route that works from a browser on another
+// machine, but that is a side effect, not the point.)
 //
 // Files land in roms/ and are then sorted by the same organiser that handles
-// anything you drop in that folder by hand. Uploading is just a way to get the
-// file there without opening a file manager.
+// anything you put in that folder by hand.
 
 import { api } from './api.mjs';
 import { toast } from './toast.mjs';
+import { confirmModal } from './modal.mjs';
+
+// Below this, a copy is quick and unremarkable. Above it, the copy is worth
+// mentioning — and there is a better tool one click away.
+const LARGE_DROP_BYTES = 512 * 1024 * 1024;
 
 /** One request per file, so progress is real and one bad file fails alone. */
 async function uploadOne(file, token) {
@@ -181,7 +193,25 @@ export function installDropTarget({ onProgress, onDone }) {
       toast.error('Nothing to import from that drop.');
       return;
     }
-    toast.good(`Uploading ${files.length} file${files.length === 1 ? '' : 's'} (${fmtBytes(files.reduce((s, f) => s + f.size, 0))})…`);
+
+    const bytes = files.reduce((sum, f) => sum + f.size, 0);
+    // A big drop is worth a word first. Copying it works, but it costs the space
+    // twice and there is a better tool one click away — better to say so than to
+    // spend ten minutes and 3 GB on the user's behalf without asking.
+    if (bytes >= LARGE_DROP_BYTES) {
+      const ok = await confirmModal({
+        title: `Copy ${fmtBytes(bytes)} in?`,
+        note: `Dropping copies the files, so this will use about ${fmtBytes(bytes)} of disc space `
+          + 'on top of the originals until you delete them.\n\n'
+          + 'Settings → ROM folders → Import from this PC can move them instead — instant, and '
+          + 'no second copy. Worth using for a big collection or large disc images.',
+        confirmLabel: 'Copy them in',
+        cancelLabel: 'Cancel',
+      });
+      if (!ok) return;
+    }
+
+    toast.good(`Uploading ${files.length} file${files.length === 1 ? '' : 's'} (${fmtBytes(bytes)})…`);
     const result = await uploadRoms(files, { onProgress });
     if (result.failed.length) {
       toast.error(`${result.failed.length} failed — ${result.failed[0].reason}`);

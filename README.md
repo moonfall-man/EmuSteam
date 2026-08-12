@@ -265,20 +265,20 @@ and the first emulator you add for a system becomes its default.
 
 ### Getting your ROMs in
 
-**Drag them onto the window.** Files or whole folders, dropped anywhere on the
-EmuSteam window. They upload, get sorted into `roms/<System>/`, and appear in your
-library. This works from a browser on another device too, which is the case a file
-dialog cannot serve.
-
-Two buttons in **Settings → ROM folders** do the same job:
+All of these end in the same place — files sorted into `roms/<System>/` and showing
+up in your library. They differ in one way that matters for a big collection:
+whether the file is **moved** or **copied**.
 
 | | |
 |---|---|
-| **Add ROMs…** | A file picker in the browser. Same as dragging. |
-| **Import from this PC…** | A native dialog. The only route that can *move* files rather than copy them, but it opens on the machine running EmuSteam. |
+| **Settings → Import ROMs…** | Pick files or a whole folder. Asks whether to copy or move — **the only route that can move**, so a 3 GB disc image costs no extra space and lands instantly. Use this for a collection. |
+| **Drag onto the window** | Files or whole folders, dropped anywhere. Quickest for a game or two. Always copies, so a big drop asks first. |
+| **Settings → Add a few files…** | Browser file picker. Same as dragging. |
+| **Copy into `roms/` yourself** | Sorted on the next launch. |
 
-Or copy files into `roms/` yourself and they're sorted on the next launch. All
-four routes end in the same place.
+Why dragging can only copy: a browser hands over file *contents* and never file
+paths, so there is nothing to move. A native dialog gives real paths, which is why
+importing can rename instead of copying.
 
 It shows you what it is about to do first — *"14 games, 2.1 GB into GB (3), PS1 (1),
 SNES (10). 2 files will be left alone."* — and asks whether to **copy** or **move**.

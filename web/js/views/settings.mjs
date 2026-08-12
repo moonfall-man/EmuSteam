@@ -264,35 +264,34 @@ function libraryPanel(ctx) {
       h('h2', { class: 'panel-title', text: 'ROM folders' }),
       h('p', {
         class: 'panel-note',
-        text: 'Three ways to get games in, all of which end up sorted by system: drag files onto this window, add them with the buttons below, or point at a library you already keep somewhere else and leave it exactly where it is.',
+        text: 'Everything here ends up sorted into roms/ by system. Importing from this PC is the one to use for a whole collection — it can move files instead of copying them. Dragging is quicker for a game or two. Or point at a library you keep elsewhere and leave it exactly where it is.',
       }),
       h('p', {
         class: 'field-hint',
         style: { marginTop: '-10px', marginBottom: '14px' },
-        text: 'Easiest: drag ROMs — or a whole folder of them — anywhere onto the EmuSteam window.',
+        text: 'You can also drag ROMs — or whole folders of them — anywhere onto this window.',
       }),
       h(
         'div',
         { class: 'row-actions', style: { marginBottom: '18px' } },
-        // Two ways in, because they are good at different things. Upload works
-        // from any browser including another device; the native dialog only opens
-        // on the machine running EmuSteam, but can move a file instead of sending
-        // its bytes over HTTP.
+        // Import leads because everyone runs this on the machine holding their
+        // ROMs. A native dialog gives real paths, so it can move a 3 GB image
+        // instantly; a browser only ever hands over bytes, which means copying.
         h('button', {
           class: 'btn btn-primary',
           nav: true,
-          'data-nav-key': 'upload-files',
-          text: '↑  Add ROMs…',
-          title: 'Choose files to upload; they are sorted into roms/ by system',
-          onClick: () => pickAndUpload({ onDone: () => refresh({ keepFocus: true }) }),
+          'data-nav-key': 'import-files',
+          text: '↓  Import ROMs…',
+          title: 'Native file dialog — can move files instead of copying them',
+          onClick: async () => { if (await importRomsFlow('files')) refresh(); },
         }),
         h('button', {
           class: 'btn',
           nav: true,
-          'data-nav-key': 'import-files',
-          text: 'Import from this PC…',
-          title: 'Uses a native file dialog, so files can be moved rather than copied',
-          onClick: async () => { if (await importRomsFlow('files')) refresh(); },
+          'data-nav-key': 'upload-files',
+          text: 'Add a few files…',
+          title: 'Browser file picker; copies the files in, same as dragging them',
+          onClick: () => pickAndUpload({ onDone: () => refresh({ keepFocus: true }) }),
         }),
         h('button', {
           class: 'btn',
@@ -353,7 +352,7 @@ function libraryPanel(ctx) {
         }),
       ),
       settingToggle(ctx, 'autoOrganize', 'File stray ROMs automatically',
-        'On every scan, a ROM dropped loose in roms/ is moved into its system folder, creating the folder if needed. Ambiguous formats are never moved.'),
+        'On every scan, a ROM sitting loose in roms/ is moved into its system folder, creating the folder if needed. Disc images are identified by reading their header, so a .bin or .cue gets filed too. Anything unidentifiable is left alone and listed above.'),
       h('p', {
         class: 'field-hint',
         style: { marginTop: '14px' },

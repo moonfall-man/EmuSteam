@@ -12,14 +12,14 @@ Pick whichever suits you — they all end up in the same place.
 
 | | |
 |---|---|
-| **Drag them onto the window** | Files or whole folders, dropped anywhere on the EmuSteam window. Works from another device too. |
-| **Settings → ROM folders → Add ROMs…** | A file picker, if you'd rather click than drag. |
-| **Copy them into this folder yourself** | Straight into `roms/`, not into a subfolder. They're sorted on the next launch. |
+| **Settings → Import ROMs…** | Best for a whole collection. Pick files or a folder; it asks whether to **copy or move**. Moving is instant and costs no extra space. |
+| **Drag them onto the window** | Files or whole folders, dropped anywhere. Quickest for one or two games. Always copies. |
+| **Copy them into this folder yourself** | Straight into `roms/`, not a subfolder. Sorted on the next launch. |
 
-There's also **Import from this PC…**, which uses a native file dialog. It's the
-only option that can *move* files instead of copying them — useful for a folder of
-PS2 ISOs you don't want two copies of — but it opens on the machine running
-EmuSteam, so it's no help if you're connected from a phone or another laptop.
+Dragging can only ever copy, because a browser gives a web page file *contents* but
+never file paths — there is nothing for it to move. The import dialog is native, so
+it gets real paths and can rename the file into place instead. A drop over about
+half a gigabyte says so before it starts, rather than quietly using the space twice.
 
 If your library already lives somewhere else and you'd rather leave it there, use
 Settings → **Add ROM folder** and point at it instead. Nothing gets moved.
