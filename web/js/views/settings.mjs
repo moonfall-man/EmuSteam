@@ -13,7 +13,7 @@ import { pickAndUpload } from './../upload.mjs';
 import {
   addSourceFlow, addEmulatorFlow, editEmulatorFlow, importRomsFlow,
   pickPlatformModal, pickPlatformEmulatorFlow, pickCoreFlow, rescan,
-  reportWorkspaceChanges, reportOrganized,
+  reportWorkspaceChanges, reportOrganized, setLibraryLocationFlow,
 } from './../flows.mjs';
 
 const TABS = [
@@ -995,21 +995,7 @@ function libraryLocationPanel(ctx) {
   const fixedByEnv = caps.libraryRootSource === 'env';
 
   const setLocation = async (folder) => {
-    try {
-      const res = await api.setLibraryLocation(folder);
-      await confirmModal({
-        title: 'Restart EmuSteam to finish',
-        note: `The library will be read from:\n\n${res.libraryRoot}\n\n`
-          + 'Nothing was moved — your existing games are still where they were. Close and '
-          + 'reopen EmuSteam for the change to take effect, then import or copy your games '
-          + 'into the new location.',
-        confirmLabel: 'Got it',
-        cancelLabel: 'Close',
-      });
-      refresh({ keepFocus: true });
-    } catch (err) {
-      toast.error(err.message);
-    }
+    if (await setLibraryLocationFlow(state, folder)) refresh({ keepFocus: true });
   };
 
   return h(
@@ -1058,14 +1044,7 @@ function libraryLocationPanel(ctx) {
               nav: true,
               'data-nav-key': 'lib-change',
               text: 'Change…',
-              onClick: async () => {
-                const folder = await browseModal({
-                  kind: 'folder',
-                  title: 'Where should the games live?',
-                  nativeDialogs: !!state.capabilities?.nativeDialogs,
-                });
-                if (folder) await setLocation(folder);
-              },
+              onClick: () => setLocation(null),
             }),
             isDefault
               ? null

@@ -537,6 +537,36 @@
 .empty-text { color: var(--text-dim); font-size: 16.5px; line-height: 1.55; }
 .empty-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
 
+/* Where the library lives, stated on the first screen rather than buried in
+   Settings. Quieter than the numbered steps — it has a sensible default, so it
+   is information first and an action second. */
+.empty-where {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  font-size: 13px;
+}
+.empty-where-label { color: var(--text-dim); }
+.empty-where-path {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--text);
+  /* A long path should shorten, not push the button off the row. */
+  max-width: min(52ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
 .steps { display: grid; gap: 12px; text-align: left; width: 100%; margin-top: 10px; }
 .step {
   display: grid;
@@ -597,7 +627,16 @@
   border-bottom: 1px solid var(--line-soft);
 }
 .modal-title { font-size: 22px; font-weight: 720; }
-.modal-note { font-size: 14.5px; color: var(--text-dim); margin-top: 5px; }
+/* pre-line, because notes that list things — folders left behind, files about to
+   move — are written with line breaks and read as a wall of text without them.
+   Long paths still wrap rather than widening the dialog. */
+.modal-note {
+  font-size: 14.5px;
+  color: var(--text-dim);
+  margin-top: 5px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
 .modal-body { padding: 20px 26px; overflow-y: auto; scrollbar-width: thin; }
 .modal-foot {
   display: flex;

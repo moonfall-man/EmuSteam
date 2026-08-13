@@ -7,6 +7,17 @@
       "runtimeArgs": ["src/main.mjs", "--no-open", "--port", "7719"],
       "port": 7719,
       "url": "http://127.0.0.1:7719"
+    },
+    {
+      "comment": "A throwaway install with its own data/, for looking at the first-launch screen without emptying the real one.",
+      "name": "emusteam-fresh",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set EMUSTEAM_DATA=%TEMP%\\emusteam-fresh\\data&& node src/main.mjs --no-open --port 7720"
+      ],
+      "port": 7720,
+      "url": "http://127.0.0.1:7720"
     }
   ]
 }

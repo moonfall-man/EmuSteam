@@ -26,9 +26,11 @@ import {
 } from './paths.mjs';
 import { emulatorsForPlatform, emulatorExists, isPlatformPlayable } from './emulators.mjs';
 import { installedCores, wasmInfoFor, wasmCatalogue } from './cores.mjs';
+import { resolvePlatforms, installPlan, installCores } from './coreinstall.mjs';
 import { playableDiscFile } from './discs.mjs';
 import { fetchArtwork } from './artfetch.mjs';
 import { planImport, importRoms } from './importer.mjs';
+import { strandedAt, moveContents } from './relocate.mjs';
 import {
   reconcileRomFolders, workspaceSummary, discoverEmulators, tidyWorkspace, planOrganize,
   romsRoot, emulatorsRoot, folderNameFor,
@@ -293,6 +295,7 @@ function suspendedAtFor(gameId) {
  * fight over the same temp files and double the load on someone else's archive.
  */
 let artRun = null;
+let coreRun = null;
 
 // -------------------------------------------------------------- SSE plumbing
 
@@ -490,17 +493,27 @@ export async function handleApi(method, url, body) {
       // Points roms/ and emulators/ somewhere else. Deliberately does *not* move
       // anything: relocating gigabytes is the user's call, and silently moving a
       // library because someone changed a setting would be indefensible.
+      //
+      // It does report what the move orphans, because "nothing was moved" reads
+      // as reassurance when it is really a warning — see relocate.mjs.
       if (workspaceSource === 'env') {
         throw bad('The library location is fixed by the EMUSTEAM_WORKSPACE environment variable.');
       }
       const raw = String(body?.path || '').trim();
+      const stranded = strandedAt(workspaceRoot);
 
       if (!raw) {
         // Empty means "back to the app folder".
         try {
           fs.rmSync(libraryLocationFile, { force: true });
         } catch { /* already gone */ }
-        return { ok: true, libraryRoot: appRoot, restartRequired: true };
+        return {
+          ok: true,
+          libraryRoot: appRoot,
+          restartRequired: true,
+          from: workspaceRoot,
+          stranded: workspaceRoot === appRoot ? { roms: null, emulators: null } : stranded,
+        };
       }
 
       const target = path.resolve(raw);
@@ -518,7 +531,43 @@ export async function handleApi(method, url, body) {
       fs.mkdirSync(dataRoot, { recursive: true });
       fs.writeFileSync(libraryLocationFile, target, 'utf8');
       // Paths are resolved once at startup, so this only takes effect next launch.
-      return { ok: true, libraryRoot: target, restartRequired: true };
+      return {
+        ok: true,
+        libraryRoot: target,
+        restartRequired: true,
+        from: workspaceRoot,
+        stranded: target === workspaceRoot ? { roms: null, emulators: null } : stranded,
+      };
+    }
+
+    case 'POST /api/workspace/bring-emulators': {
+      // The follow-up to a relocation: carry emulators/ across to the new root.
+      //
+      // Only emulators, and only on request. ROMs are left to the user because a
+      // multi-hour, multi-gigabyte copy should not start from a settings dialog
+      // with no progress bar and no way to stop it. Emulators are small enough to
+      // move in one go, and are the folder whose absence fails silently.
+      const from = String(body?.from || '').trim();
+      const to = String(body?.to || '').trim();
+      if (!from || !to) throw bad('Both the old and new library folders are needed.');
+
+      const src = path.join(path.resolve(from), 'emulators');
+      const dest = path.join(path.resolve(to), 'emulators');
+      if (path.resolve(from) === path.resolve(to)) throw bad('Those are the same folder.');
+      if (!safeExists(src)) throw bad(`There is no emulators folder at ${from}.`);
+
+      // Merging two populated emulator folders would silently pick a winner per
+      // file. Refuse and let the user look at both.
+      const existing = strandedAt(path.resolve(to)).emulators;
+      if (existing) {
+        throw bad(
+          `${dest} already has ${existing.count} file${existing.count === 1 ? '' : 's'} in it. `
+          + 'Move them across yourself so nothing gets overwritten.',
+        );
+      }
+
+      const result = moveContents(src, dest);
+      return { ok: true, ...result, from: src, to: dest, restartRequired: true };
     }
 
     case 'POST /api/import/pick': {
@@ -558,6 +607,35 @@ export async function handleApi(method, url, body) {
       saveLibrary(library);
       broadcast('library', { scannedAt: library.scannedAt, count: library.games.length });
       return { ...result, games: library.games.length };
+    }
+
+    case 'POST /api/cores/install': {
+      // Downloads the in-app player. The only route that reaches the network,
+      // and only when someone presses a button — see coreinstall.mjs for why the
+      // URL cannot be influenced from here.
+      if (coreRun) throw bad('A core download is already running.');
+
+      const want = body?.platforms === 'all' || body?.platforms === 'owned'
+        ? body.platforms
+        : Array.isArray(body?.platforms) ? body.platforms : 'owned';
+      const platforms = resolvePlatforms(want, loadConfig(), loadLibrary());
+      if (!platforms.length) throw bad('No systems to download a core for.');
+
+      const plan = installPlan(platforms);
+      if (!plan.files.length) {
+        return { started: false, alreadyComplete: true, platforms, files: 0 };
+      }
+
+      coreRun = installCores(platforms, { onProgress: (p) => broadcast('cores', p) })
+        .catch((err) => {
+          broadcast('cores', { phase: 'error', message: err.message });
+          return { downloaded: 0, bytes: 0, failed: [{ file: '', message: err.message }] };
+        })
+        .finally(() => { coreRun = null; });
+
+      // Returns straight away; the UI follows the 'cores' events rather than
+      // holding a request open for a 30 MB download.
+      return { started: true, platforms, cores: plan.cores, files: plan.files.length };
     }
 
     case 'POST /api/art/fetch': {

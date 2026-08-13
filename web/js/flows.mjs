@@ -8,6 +8,158 @@ import { api } from './api.mjs';
 import { toast, stickyToast } from './toast.mjs';
 import { openModal, browseModal, confirmModal, chooseModal } from './modal.mjs';
 
+/** "312 files, 3.5 GB" — or "20,000+ files" once the walk gave up counting. */
+function countLine({ count, bytes, capped }) {
+  const files = `${count.toLocaleString()}${capped ? '+' : ''} file${count === 1 ? '' : 's'}`;
+  // Down to KB: rounding everything small up to "1 MB" makes a config file and a
+  // ROM look the same size, which is exactly the judgement being asked for here.
+  const size = bytes >= (1 << 30) ? `${(bytes / (1 << 30)).toFixed(1)} GB`
+    : bytes >= (1 << 20) ? `${(bytes / (1 << 20)).toFixed(bytes >= (10 << 20) ? 0 : 1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return capped ? files : `${files}, ${size}`;
+}
+
+/**
+ * Move the library folder: pick it, save it, then say what got left behind.
+ *
+ * The saying-what-got-left-behind is the important half. Relocating does not
+ * move files, and reporting that as "nothing was moved" reads as reassurance
+ * when it is really a warning — from the next launch EmuSteam looks in the new
+ * folder for everything. Games going missing is at least loud. Emulators are
+ * discovered by scanning emulators/ rather than stored in settings, so a
+ * relocated library finds an empty folder and reports no emulators as though
+ * you never had any.
+ *
+ * @param {object} state
+ * @param {string|null} folder  pre-picked folder, or null to ask; '' means
+ *                              "back to the app folder"
+ * @returns {Promise<boolean>} whether anything changed
+ */
+export async function setLibraryLocationFlow(state, folder = null) {
+  if (folder === null) {
+    folder = await browseModal({
+      kind: 'folder',
+      title: 'Where should the games live?',
+      nativeDialogs: !!state.capabilities?.nativeDialogs,
+    });
+    if (!folder) return false;
+  }
+
+  let res;
+  try {
+    res = await api.setLibraryLocation(folder);
+  } catch (err) {
+    toast.error(err.message);
+    return false;
+  }
+
+  const left = res.stranded || {};
+  const lines = [`The library will be read from:\n\n${res.libraryRoot}\n`];
+
+  if (left.roms || left.emulators) {
+    lines.push(`Still in the old folder, ${res.from}:`);
+    if (left.roms) lines.push(`   •  Games — ${countLine(left.roms)}`);
+    if (left.emulators) lines.push(`   •  Emulators — ${countLine(left.emulators)}`);
+    lines.push('');
+    lines.push(
+      left.emulators
+        ? 'Nothing has been moved yet. EmuSteam can carry the emulators across now — '
+          + 'they are small, and left behind they go missing without saying so. Copy the '
+          + 'games over yourself, or use Add games to import them.'
+        : 'Nothing has been moved. Copy the games over yourself, or use Add games to import them.',
+    );
+  } else {
+    lines.push('Nothing needed moving — the old folder was empty.');
+  }
+  lines.push('');
+  lines.push('Either way, close and reopen EmuSteam for the change to take effect.');
+
+  const move = await confirmModal({
+    title: 'Restart EmuSteam to finish',
+    note: lines.join('\n'),
+    confirmLabel: left.emulators ? 'Move the emulators' : 'Got it',
+    cancelLabel: left.emulators ? 'Leave them' : 'Close',
+    // Leaving files alone is the safe default when a stray button press decides.
+    focusCancel: !!left.emulators,
+  });
+
+  if (move && left.emulators) {
+    try {
+      const done = await api.bringEmulators(res.from, res.libraryRoot);
+      toast.good(`Moved ${done.moved} file${done.moved === 1 ? '' : 's'} to ${done.to}`);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+  return true;
+}
+
+/**
+ * Download the in-app player.
+ *
+ * Kicks the download off and returns — the server streams 'cores' events and the
+ * progress card in app.mjs follows them, the same as scanning and importing. The
+ * caller gets told whether anything actually started so it can avoid a pointless
+ * refresh.
+ *
+ * @param {'all'|'owned'|string[]} platforms
+ * @param {string} what  how to describe it in the toast
+ * @returns {Promise<boolean>} true when a download began
+ */
+export async function downloadCoresFlow(platforms = 'owned', what = 'the in-app player') {
+  try {
+    const res = await api.installCores(platforms);
+    if (res.alreadyComplete) {
+      toast.info('Already downloaded — nothing to fetch.');
+      return false;
+    }
+    toast.info(`Downloading ${what} — ${res.files} file${res.files === 1 ? '' : 's'}.`);
+    return true;
+  } catch (err) {
+    toast.error(err.message);
+    return false;
+  }
+}
+
+/**
+ * Step 2 of setup: get something to play games with.
+ *
+ * Two genuinely different answers, so it asks rather than guessing. Downloading
+ * cores is first because it needs nothing from the user — no file to find, no
+ * emulator to have installed already — and covers most retro systems.
+ */
+export async function addPlayableFlow(state) {
+  const runtimeReady = state.inApp?.runtimeInstalled;
+  const missing = (state.inApp?.supported || []).filter((row) => !row.installed).length;
+
+  const picked = await chooseModal({
+    title: 'What should play your games?',
+    note: 'Most retro systems can run inside EmuSteam. The heavier consoles need a real emulator.',
+    options: [
+      {
+        id: 'cores',
+        title: runtimeReady ? 'Download more systems' : 'Play them in the app',
+        note: runtimeReady
+          ? `${missing} system${missing === 1 ? '' : 's'} left to download, about 1–2 MB each.`
+          : 'Downloads the player and the cores for your systems — about 1–2 MB each, nothing to install.',
+        // focus, not selected: these are actions, and "Current" would read as a
+        // setting that is already in force.
+        focus: true,
+        disabled: runtimeReady && missing === 0,
+      },
+      {
+        id: 'emulator',
+        title: 'Point at an emulator I already have',
+        note: 'For PS2, GameCube, Wii and anything else that needs the real thing.',
+      },
+    ],
+  });
+
+  if (picked === null) return false;
+  if (picked === 'emulator') return addEmulatorFlow(state);
+  return downloadCoresFlow('owned');
+}
+
 /** Add a ROM folder: pick it, confirm the platform, save, rescan. */
 export async function addSourceFlow(state) {
   const folder = await browseModal({

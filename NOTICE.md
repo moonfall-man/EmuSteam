@@ -8,7 +8,7 @@ Two optional commands download assets when you run them. Neither runs on its own
 ## `npm run fetch-cores`
 
 Downloads the [EmulatorJS](https://github.com/EmulatorJS/EmulatorJS) runtime and
-libretro cores into `cores/`.
+libretro cores into `data/cores/`.
 
 - EmulatorJS is licensed **GPL-3.0**.
 - Each libretro core carries its own upstream licence — see the core's own

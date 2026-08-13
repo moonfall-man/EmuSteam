@@ -629,6 +629,10 @@ async function boot() {
       onImportEvent(data);
       return;
     }
+    if (event === 'cores') {
+      onCoresEvent(data);
+      return;
+    }
     if (event === 'session') {
       // In-app sessions never get the "Now playing" overlay. That screen exists
       // to explain that an external program has taken the display — when the game
@@ -818,6 +822,55 @@ function onImportEvent(data) {
   const pct = data.total ? Math.round((data.done / data.total) * 100) : 0;
   title.textContent = `${verb} games… ${pct}%`;
   sub.textContent = `${data.done} of ${data.total} — ${data.label || ''} → ${data.folder || ''}`;
+}
+
+/**
+ * Core download progress, in the same card as scanning and importing.
+ *
+ * Finishing refreshes the view rather than just saying "done": what changed is
+ * that systems became playable, and leaving stale "Download" buttons on screen
+ * after downloading them is the kind of thing that makes people click twice.
+ */
+function onCoresEvent(data) {
+  const bar = document.getElementById('scanbar');
+  const title = document.getElementById('scanbar-title');
+  const sub = document.getElementById('scanbar-sub');
+  if (!bar || !title || !sub) return;
+
+  clearTimeout(scanHideTimer);
+
+  if (data.phase === 'error') {
+    title.textContent = 'Download failed';
+    sub.textContent = data.message || '';
+    bar.classList.add('show', 'is-done');
+    scanHideTimer = setTimeout(() => bar.classList.remove('show', 'is-done'), 6000);
+    return;
+  }
+
+  if (data.phase === 'done') {
+    const failed = data.failed?.length || 0;
+    title.textContent = failed
+      ? `Downloaded ${data.downloaded}, ${failed} failed`
+      : 'In-app player ready';
+    sub.textContent = failed
+      ? data.failed[0].message
+      : `${fmtBytes(data.bytes || 0)} — these systems play here now`;
+    bar.classList.add('show', 'is-done');
+    scanHideTimer = setTimeout(() => bar.classList.remove('show', 'is-done'), 5000);
+    refresh({ keepFocus: true });
+    return;
+  }
+
+  bar.classList.remove('is-done');
+  bar.classList.add('show');
+  if (data.phase === 'start') {
+    title.textContent = 'Downloading the in-app player…';
+    sub.textContent = `${data.total} file${data.total === 1 ? '' : 's'} — ${(data.cores || []).join(', ')}`;
+    return;
+  }
+  const pct = data.total ? Math.round((data.done / data.total) * 100) : 0;
+  title.textContent = `Downloading… ${pct}%`;
+  sub.textContent = `${data.done} of ${data.total} — ${data.label || ''}`;
 }
 
 // ---------------------------------------------------------- upload progress

@@ -25,14 +25,19 @@ an AudioWorklet, input through the same Gamepad API the couch UI already uses.
 No process launch, no window handoff, no two-second wait. Press A and you're in
 the game.
 
+Get them from **Settings → Play in the app** — a Download button per system, or
+one for all of them. There is a command-line equivalent for setting a machine up
+before first launch:
+
 ```bash
 npm run fetch-cores          # once — grabs the cores for the systems you own
 npm run fetch-cores -- list  # what's available, what you have
 ```
 
-Cores are ~1–2 MB each and land in `cores/`. That command is the **only** part of
-EmuSteam that touches the network, and it only runs when you ask; everything is
-served from disk afterwards.
+Cores are ~1–2 MB each and land in `data/cores/`. Downloading them is the only
+thing in EmuSteam that touches the network, whichever way you start it, and it
+only happens when you ask; everything is served from disk afterwards. Point
+`EMUSTEAM_CORE_CDN` at a mirror if you cannot reach the default one.
 
 That claim is enforced, not just intended. EmulatorJS itself pings
 `cdn.emulatorjs.org` for a version check on every game start and offers no way to
@@ -63,7 +68,7 @@ TurboGrafx-16, TurboGrafx-CD, Neo Geo Pocket Color, WonderSwan, Atari Lynx,
 Arcade, Neo Geo, C64 and Amiga.
 
 Settings → **Play in app** lists all of them all the time — which have their core
-downloaded, which are one command away, and which systems need a standalone
+downloaded, which are one click away, and which systems need a standalone
 emulator instead, with the reason for each.
 
 ### It suspends like a console
@@ -214,7 +219,11 @@ same in the other account.
 
 | Shared | Kept per account |
 |---|---|
-| `roms/`, `emulators/`, `cores/` | saves, save states, suspended sessions, favourites, play time, settings |
+| `roms/`, `emulators/` | everything in `data/` — saves, save states, suspended sessions, favourites, play time, settings, and the downloaded cores |
+
+The cores stay per-account deliberately. They are a download cache tied to the app
+version rather than to anyone's games, so each install fetches its own — and that
+is what stops moving the library from stranding the in-app player.
 
 EmuSteam creates `roms/` and `emulators/` **inside** the folder you pick, and from
 then on everything targets them: importing, dragging onto the window, and copying
@@ -222,9 +231,16 @@ files in by hand all land in the shared `roms/` and get sorted there. The `roms/
 folder inside the app itself goes unused.
 
 That split is the point: two people share the games and keep their own progress.
-Changing the location **never moves anything** — relocating gigabytes is your
-call, so move or import the games yourself afterwards. It takes effect on the next
+Changing the location **never moves your games** — relocating gigabytes is your
+call, so move or import them yourself afterwards. It takes effect on the next
 launch, because the paths are resolved once at startup.
+
+What it does do is tell you exactly what it just left behind, with counts and
+sizes, and offer to carry the `emulators/` folder across. That one is worth
+automating because it fails *quietly*: emulators are found by scanning the folder
+rather than recorded in settings, so a relocated library finds an empty folder and
+reports no emulators at all, as though you never had any. Games at least have the
+decency to visibly disappear.
 
 `EMUSTEAM_WORKSPACE` does the same job from the environment and wins over the
 setting, which is how the test suite guarantees it can never touch a real library.
@@ -264,7 +280,7 @@ clone is about 600 KB. You need [Node.js](https://nodejs.org) 20.6 or newer and
 nothing else; an older Node is told so plainly rather than failing with a stack
 trace.
 
-Nothing personal comes with the clone: `data/`, `cores/` and the contents of
+Nothing personal comes with the clone: `data/` and the contents of
 `roms/` and `emulators/` are all ignored by git, so you get the app and none of
 anyone's games, saves or settings. First run walks you through pointing it at ROMs
 and either downloading cores or picking an emulator you already have.
@@ -475,8 +491,10 @@ and it never touches your real config.
   title — so the grid never looks broken. You can also assign art by hand.
 - **Play time and history**, like a store page. Continue-playing rail, play
   counts, favourites, hidden games.
-- **Nothing phones home.** No accounts, no telemetry, no art scraping, no
-  network calls at all. It reads your disk and launches your programs.
+- **Nothing phones home.** No accounts, no telemetry, no background requests.
+  The only things that ever reach the network are the two downloads you press a
+  button for — cores and box art. Otherwise it reads your disk and launches your
+  programs.
 
 ## Supported systems
 
@@ -544,12 +562,12 @@ Set `EMUSTEAM_DATA` to move the data folder somewhere else.
 ```
 src/          server: scanner, launcher, API, platform + emulator catalogues
 tools/        fetch-cores.mjs — downloads the in-app player
-cores/        EmulatorJS runtime + WASM cores (gitignored, fetched on demand)
 web/          frontend: no framework, native ES modules, hand-written CSS
 test/smoke.mjs  the whole test suite
 roms/         your ROMs, one folder per playable system (managed)
 emulators/    portable emulator builds, so their paths stay relative
 data/         yours — config.json, library.json, stats.json, art/  (gitignored)
+data/cores/   EmulatorJS runtime + WASM cores (fetched on demand)
 ```
 
 Set `EMUSTEAM_WORKSPACE` to put `roms/` and `emulators/` somewhere other than the
@@ -572,7 +590,8 @@ The server can start programs and read files, so it is locked down accordingly:
   cannot be talked into reading something else.
 - `/cores/` is the one route without a token, because EmulatorJS builds asset URLs
   by string concatenation and a query string would corrupt them. It is sandboxed
-  to `cores/`, which holds only byte-for-byte public CDN files — nothing about you.
+  to the cores folder, which holds only byte-for-byte public CDN files — nothing
+  about you.
 - Game titles come from filenames on disk, so the frontend never uses
   `innerHTML`; everything is built as text nodes.
 
