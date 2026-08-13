@@ -1158,7 +1158,9 @@ try {
   await call('POST', '/api/settings', { autoOrganize: true });
 
   section('in-app player (WASM cores)');
-  const coresDir = path.join(workspaceRoot, 'cores');
+  // Under data/, not the library folder: the runtime is a per-install download
+  // cache, so pointing the library at another drive must not strand it.
+  const coresDir = path.join(dataRoot, 'cores');
 
   // With nothing downloaded, every system must say so rather than offering a
   // Play button that cannot work.
@@ -1519,6 +1521,60 @@ try {
   await call('POST', '/api/settings', {
     fastForwardRatio: 2.5, showHidden: false, fastForwardMode: 'tap-or-hold', sort: 'name',
   });
+
+  // Moving the library folder does not move any files, so the app has to say
+  // what it just orphaned. Emulators are the case that matters: they are found
+  // by scanning emulators/ rather than stored in config, so a relocated library
+  // reports none at all as though you never had any.
+  section('what a library move leaves behind');
+  const { strandedAt, moveContents } = await import('../src/relocate.mjs');
+  const oldRoot = path.join(tmpRoot, 'oldlib');
+  const newRoot = path.join(tmpRoot, 'newlib');
+  fs.mkdirSync(path.join(oldRoot, 'emulators', 'mGBA'), { recursive: true });
+  fs.mkdirSync(path.join(oldRoot, 'roms', 'SNES'), { recursive: true });
+  fs.writeFileSync(path.join(oldRoot, 'emulators', 'README.md'), '# emulators');
+  fs.writeFileSync(path.join(oldRoot, 'emulators', 'mGBA', 'mGBA.exe'), 'x'.repeat(500));
+  fs.writeFileSync(path.join(oldRoot, 'roms', 'SNES', 'Game (USA).sfc'), 'y'.repeat(100));
+
+  let left = strandedAt(oldRoot);
+  check('the old folder reports its emulators', left.emulators?.count === 1,
+    JSON.stringify(left.emulators));
+  check('and its games', left.roms?.count === 1, JSON.stringify(left.roms));
+  check('sizes come back too', left.emulators?.bytes === 500, JSON.stringify(left.emulators));
+
+  // A roms/ holding nothing but the README EmuSteam wrote is an empty folder.
+  fs.mkdirSync(path.join(newRoot, 'roms'), { recursive: true });
+  fs.writeFileSync(path.join(newRoot, 'roms', 'README.md'), '# roms');
+  check('a folder with only its README counts as empty',
+    strandedAt(newRoot).roms === null, JSON.stringify(strandedAt(newRoot).roms));
+  check('and a folder that is not there at all is null', strandedAt(newRoot).emulators === null);
+
+  const movedOver = moveContents(
+    path.join(oldRoot, 'emulators'), path.join(newRoot, 'emulators'));
+  check('bringing emulators across moves them', movedOver.moved === 1, JSON.stringify(movedOver));
+  check('the emulator lands in the new library',
+    fs.existsSync(path.join(newRoot, 'emulators', 'mGBA', 'mGBA.exe')));
+  check('and is gone from the old one',
+    !fs.existsSync(path.join(oldRoot, 'emulators', 'mGBA')));
+  // emulators/README.md is committed to the repo. Moving the folder wholesale
+  // would delete a tracked file out of a git checkout.
+  check('the committed README stays where it was',
+    fs.existsSync(path.join(oldRoot, 'emulators', 'README.md')));
+  check('games are never moved — that is the user\'s call',
+    fs.existsSync(path.join(oldRoot, 'roms', 'SNES', 'Game (USA).sfc')));
+
+  // Merging two populated emulator folders would silently pick a winner per file.
+  fs.mkdirSync(path.join(oldRoot, 'emulators', 'mGBA'), { recursive: true });
+  fs.writeFileSync(path.join(oldRoot, 'emulators', 'mGBA', 'mGBA.exe'), 'newer');
+  let clash = null;
+  try {
+    moveContents(path.join(oldRoot, 'emulators'), path.join(newRoot, 'emulators'));
+  } catch (err) {
+    clash = err.message;
+  }
+  check('a name collision refuses rather than overwriting', !!clash, String(clash));
+  check('and the file it would have clobbered is untouched',
+    fs.readFileSync(path.join(newRoot, 'emulators', 'mGBA', 'mGBA.exe'), 'utf8').length === 500);
 
   section('config durability');
   const broken = path.join(dataRoot, 'config.json');

@@ -16,9 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { workspaceRoot } from './paths.mjs';
-
-export const coresRoot = path.join(workspaceRoot, 'cores');
+import { appRoot, dataRoot, workspaceRoot } from './paths.mjs';
 
 /** Where the assets are mirrored from, if you want to fetch them by hand. */
 export const CORE_CDN = 'https://cdn.emulatorjs.org/stable/data';
@@ -46,6 +44,40 @@ export const RUNTIME_FILES = [
   'compression/libunrar.js',
   'compression/libunrar.wasm',
 ];
+
+/**
+ * Where the downloaded runtime lives.
+ *
+ * Under data/, not the library folder. These files are a download cache tied to
+ * this install: fetched by `npm run fetch-cores`, re-fetchable at any time, and
+ * matched to the app version rather than to anyone's game collection. Two
+ * accounts sharing one ROM library still each want their own copy.
+ *
+ * They used to sit beside roms/ and emulators/, which meant pointing the library
+ * at another drive silently moved the runtime with it and in-app play stopped
+ * working — the cores were still on disk, just no longer where anything looked.
+ * Installs from before the move keep working: a runtime found in either old spot
+ * is used where it is rather than making anyone download 30 MB again.
+ */
+function resolveCoresRoot() {
+  const preferred = path.join(dataRoot, 'cores');
+  const complete = (root) => RUNTIME_FILES.every((f) => safeExists(path.join(root, f)));
+  if (complete(preferred)) return preferred;
+
+  // Only an install running on default paths inherits an older layout. Setting
+  // EMUSTEAM_DATA or EMUSTEAM_WORKSPACE is a deliberate "put this install here",
+  // and quietly reaching back into the app folder for someone else's runtime
+  // would undo that — a test harness pointed at a temp folder would find the
+  // real machine's cores and conclude the runtime is installed.
+  if (process.env.EMUSTEAM_DATA || process.env.EMUSTEAM_WORKSPACE) return preferred;
+
+  for (const legacy of [path.join(appRoot, 'cores'), path.join(workspaceRoot, 'cores')]) {
+    if (legacy !== preferred && complete(legacy)) return legacy;
+  }
+  return preferred;
+}
+
+export const coresRoot = resolveCoresRoot();
 
 /**
  * Per-core files. The runtime picks the variant at runtime:

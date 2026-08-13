@@ -123,23 +123,39 @@ export function openModal(spec) {
 
 // ------------------------------------------------------------- shorthands
 
+/**
+ * @param {{title:string, note?:string, confirmLabel?:string, cancelLabel?:string,
+ *          danger?:boolean, focusCancel?:boolean}} spec
+ *
+ * focusCancel starts on the cancel button instead of the confirm one. Worth
+ * setting whenever confirming does something to files: this is a couch UI driven
+ * with a controller, dialogs get dismissed by mashing A, and whichever button
+ * holds focus is the one that press lands on.
+ */
 export function confirmModal({
   title,
   note,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   danger = false,
+  focusCancel = false,
 }) {
   return openModal({
     title,
     note,
     width: '480px',
     footer: ({ close }) => [
-      h('button', { class: 'btn btn-ghost', nav: true, onClick: () => close(false), text: cancelLabel }),
+      h('button', {
+        class: 'btn btn-ghost',
+        nav: true,
+        'data-nav-initial': focusCancel ? '' : null,
+        onClick: () => close(false),
+        text: cancelLabel,
+      }),
       h('button', {
         class: ['btn', danger ? 'btn-danger' : 'btn-primary'],
         nav: true,
-        'data-nav-initial': '',
+        'data-nav-initial': focusCancel ? null : '',
         onClick: () => close(true),
         text: confirmLabel,
       }),

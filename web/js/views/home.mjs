@@ -6,7 +6,7 @@
 
 import { h } from './../util.mjs';
 import { gameCard, platformCard, allGamesCard, actionCard, rail } from './../cards.mjs';
-import { addSourceFlow, addEmulatorFlow, rescan } from './../flows.mjs';
+import { addSourceFlow, addEmulatorFlow, rescan, setLibraryLocationFlow } from './../flows.mjs';
 import { GALAXY_TINT } from './../art.mjs';
 
 const MAX_RAIL = 16;
@@ -133,6 +133,9 @@ function onboarding(ctx) {
   const readyCores = (state.inApp?.supported || []).filter((row) => row.installed);
   const hasEmulators = state.emulators.length > 0 || readyCores.length > 0;
   const onlyCores = state.emulators.length === 0 && readyCores.length > 0;
+  const caps = state.capabilities || {};
+  const libRoot = caps.libraryRoot || caps.appRoot || '';
+  const fixedByEnv = caps.libraryRootSource === 'env';
 
   const step = (n, done, title, note, action) =>
     h(
@@ -204,6 +207,27 @@ function onboarding(ctx) {
             }
           : null,
       ),
+    ),
+    // Where all of it lands. Worth saying on the very first screen rather than
+    // only in Settings: it is the one decision that is annoying to change later,
+    // and the answer for anyone sharing a drive between Windows accounts — or
+    // just keeping 400 GB of ROMs off the C: drive — is not the default.
+    h(
+      'div',
+      { class: 'empty-where' },
+      h('span', { class: 'empty-where-label', text: 'Games and emulators go in' }),
+      h('span', { class: 'empty-where-path', text: caps.romsRoot || `${libRoot}\\roms` }),
+      h('button', {
+        class: 'btn btn-sm btn-ghost',
+        nav: true,
+        text: fixedByEnv ? 'Set by EMUSTEAM_WORKSPACE' : 'Change…',
+        disabled: fixedByEnv || null,
+        onClick: fixedByEnv
+          ? null
+          : async () => {
+              if (await setLibraryLocationFlow(state)) refresh();
+            },
+      }),
     ),
     h(
       'div',
