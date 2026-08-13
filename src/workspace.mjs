@@ -120,6 +120,24 @@ export function reconcileRomFolders(config) {
   const removed = [];
 
   updateConfig((draft) => {
+    // 0. Has the library been relocated out from under us?
+    //
+    // A managed source means "the roms/<System>/ folder EmuSteam looks after". If
+    // the library root has moved, those paths describe the previous location and
+    // nothing at the new one is registered — so a game imported after relocating
+    // would be filed correctly and never appear.
+    //
+    // They become ordinary folders rather than being dropped, so the games in them
+    // stay visible while you move them across at your own pace. Once the old
+    // folder is empty you can remove it in Settings; nothing is deleted here.
+    for (const source of draft.sources) {
+      if (!source.managed) continue;
+      const want = path.join(romsRoot, folderNameFor(source.platform));
+      if (fromPortable(source.path).toLowerCase() !== want.toLowerCase()) {
+        source.managed = false;
+      }
+    }
+
     const managed = draft.sources.filter((s) => s.managed);
     const managedByPlatform = new Map(managed.map((s) => [s.platform, s]));
 

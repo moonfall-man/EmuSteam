@@ -9,13 +9,13 @@
 // folders: archival filenames, .cue/.bin pairs, multi-disc sets, and filenames
 // containing characters that a shell would treat as syntax.
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'emusteam-test-'));
@@ -483,6 +483,56 @@ try {
   fs.rmSync(path.join(workspaceRoot, 'roms', 'GB', path.basename(loosePath)), { force: true });
   await call('POST', '/api/emulators/remove', { id: gbEmuId });
   await call('POST', '/api/scan');
+
+  section('relocating the library');
+  {
+    // Run in a child process with its own EMUSTEAM_WORKSPACE, never in-process:
+    // reconcileRomFolders writes to whatever workspace the *current* process
+    // resolved, and this test runner resolves to the real repository.
+    const relocRoot = path.join(tmpRoot, 'reloc');
+    const oldHome = path.join(relocRoot, 'old');
+    const newHome = path.join(relocRoot, 'new');
+    const relocData = path.join(relocRoot, 'data');
+    fs.mkdirSync(path.join(oldHome, 'roms', 'GB'), { recursive: true });
+    fs.mkdirSync(newHome, { recursive: true });
+    fs.mkdirSync(relocData, { recursive: true });
+    fs.writeFileSync(path.join(oldHome, 'roms', 'GB', 'Relocated (USA).gb'), 'x');
+
+    // A config as it looks before relocating: one managed source at the old root.
+    fs.writeFileSync(path.join(relocData, 'config.json'), JSON.stringify({
+      version: 1,
+      sources: [{
+        id: 'src_reloc', path: path.join(oldHome, 'roms', 'GB'), platform: 'gb',
+        recursive: true, enabled: true, managed: true,
+      }],
+      emulators: [],
+      settings: {},
+    }));
+
+    const script = `
+      const { reconcileRomFolders } = await import(${JSON.stringify(
+    pathToFileURL(path.join(repoRoot, 'src', 'workspace.mjs')).href,
+  )});
+      const { loadConfig } = await import(${JSON.stringify(
+    pathToFileURL(path.join(repoRoot, 'src', 'store.mjs')).href,
+  )});
+      reconcileRomFolders(loadConfig());
+      process.stdout.write(JSON.stringify(loadConfig().sources));
+    `;
+    const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      encoding: 'utf8',
+      env: { ...process.env, EMUSTEAM_DATA: relocData, EMUSTEAM_WORKSPACE: newHome },
+    });
+    const sources = JSON.parse(out);
+    const stale = sources.find((s) => String(s.path).includes('old'));
+
+    check('a managed source left behind by a move is kept, not dropped', !!stale,
+      JSON.stringify(sources));
+    check('but demoted to an ordinary folder, so its games stay visible',
+      stale && stale.managed === false, JSON.stringify(stale));
+    check('so nothing about the old location is deleted',
+      fs.existsSync(path.join(oldHome, 'roms', 'GB', 'Relocated (USA).gb')));
+  }
 
   section('where the games live');
   {
