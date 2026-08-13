@@ -393,7 +393,7 @@ function handleCoreAsset(req, res, url) {
     stat = fs.statSync(target);
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain' })
-      .end('Core asset missing. Run: npm run fetch-cores');
+      .end('Core asset missing — re-download it from Settings, Play in the app.');
     return;
   }
   if (!stat.isFile()) {

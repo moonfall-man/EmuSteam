@@ -10,6 +10,7 @@ import { h } from './../util.mjs';
 import { api } from './../api.mjs';
 import { toast } from './../toast.mjs';
 import { chooseModal } from './../modal.mjs';
+import { downloadCoresFlow } from './../flows.mjs';
 
 const SPEED_STEPS = [1.5, 2, 2.5, 3, 4, 8, 0];
 const speedLabel = (r) => (Number(r) === 0 ? 'Unlimited' : `${r}×`);
@@ -69,6 +70,10 @@ export function inAppPanel(ctx) {
   const ready = inApp.supported.filter((row) => row.installed);
   const available = inApp.supported.filter((row) => !row.installed);
 
+  const download = async (platforms, what) => {
+    if (await downloadCoresFlow(platforms, what)) refresh({ keepFocus: true });
+  };
+
   const systemRow = (row, installed) =>
     h(
       'div',
@@ -85,10 +90,15 @@ export function inAppPanel(ctx) {
         ),
         h('div', { class: 'field-hint', text: `core: ${row.core}` }),
       ),
-      h('span', {
-        class: 'chip mono',
-        text: installed ? row.system : `fetch-cores -- ${row.platform}`,
-      }),
+      installed
+        ? h('span', { class: 'chip mono', text: row.system })
+        : h('button', {
+            class: 'btn btn-sm',
+            nav: true,
+            'data-nav-key': `core-${row.platform}`,
+            text: 'Download',
+            onClick: () => download([row.platform], row.name),
+          }),
     );
 
   return h(
@@ -119,10 +129,19 @@ export function inAppPanel(ctx) {
             h(
               'div',
               { class: 'listrow-main' },
-              h('div', { class: 'listrow-title', text: 'The in-app player is not installed yet' }),
-              h('div', { class: 'field-hint', text: 'Run  npm run fetch-cores  once to download it.' }),
+              h('div', { class: 'listrow-title', text: 'The in-app player is not downloaded yet' }),
+              h('div', {
+                class: 'field-hint',
+                text: 'One download and the systems below play right here — nothing to install.',
+              }),
             ),
-            h('div', {}),
+            h('button', {
+              class: 'btn btn-sm btn-primary',
+              nav: true,
+              'data-nav-key': 'core-runtime',
+              text: 'Download it',
+              onClick: () => download('owned', 'the in-app player'),
+            }),
           ),
 
       h('div', {
@@ -132,10 +151,7 @@ export function inAppPanel(ctx) {
       }),
       ready.length
         ? h('div', { class: 'rowlist' }, ...ready.map((row) => systemRow(row, true)))
-        : h('div', {
-            class: 'field-hint',
-            text: 'None downloaded yet. Run  npm run fetch-cores  to get some.',
-          }),
+        : h('div', { class: 'field-hint', text: 'None downloaded yet — use Download on any system below.' }),
 
       h('div', {
         class: 'fact-k',
@@ -155,11 +171,20 @@ export function inAppPanel(ctx) {
           )
         : h('div', { class: 'field-hint', text: 'Every supported system is already downloaded.' }),
 
-      h('div', {
-        class: 'browser-path',
-        style: { marginTop: '18px' },
-        text: 'npm run fetch-cores -- all      # every core, roughly 30 MB',
-      }),
+      available.length
+        ? h(
+            'div',
+            { class: 'listrow-actions', style: { marginTop: '18px', justifyContent: 'flex-start' } },
+            h('button', {
+              class: 'btn btn-sm',
+              nav: true,
+              'data-nav-key': 'core-all',
+              text: `Download all ${available.length}`,
+              onClick: () => download('all', 'every core'),
+            }),
+            h('span', { class: 'field-hint', text: 'Roughly 30 MB for the full set.' }),
+          )
+        : null,
     ),
 
     // ---- what needs a real emulator ---------------------------------------

@@ -7,15 +7,15 @@
 //   npm run fetch-cores -- all       every core we know about (~30 MB)
 //   npm run fetch-cores -- list      show what is available and what you have
 //
-// This is the only part of EmuSteam that touches the network, and it only runs
-// when you ask it to. Everything lands in cores/ and is served from disk
-// afterwards.
+// The app can do all of this from Settings → Play in the app, which is the
+// friendlier route. This exists for setting a machine up before first launch, or
+// scripting it. Both use the same downloader in src/coreinstall.mjs, so there is
+// one implementation to trust rather than two that drift.
 
-import fs from 'node:fs';
-import path from 'node:path';
 import {
-  coresRoot, CORE_CDN, RUNTIME_FILES, WASM_CORES, installedCores, coreFilesFor,
+  coresRoot, WASM_CORES, installedCores,
 } from '../src/cores.mjs';
+import { resolvePlatforms, installPlan, installCores } from '../src/coreinstall.mjs';
 import { loadConfig, loadLibrary } from '../src/store.mjs';
 import { platformMeta } from '../src/platforms.mjs';
 
@@ -23,34 +23,6 @@ const args = process.argv.slice(2).map((a) => a.toLowerCase());
 
 function bytes(n) {
   return n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
-}
-
-async function download(url, dest) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} for ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.writeFileSync(dest, buf);
-  return buf.length;
-}
-
-/** Which platforms to fetch cores for, from the args or from what you own. */
-function wantedPlatforms() {
-  if (args.includes('all')) return Object.keys(WASM_CORES);
-
-  const named = args.filter((a) => a !== 'all' && a !== 'list' && WASM_CORES[a]);
-  if (named.length) return named;
-
-  // Default: whatever the library actually contains that can run in-app.
-  const inLibrary = [...new Set(loadLibrary().games.map((g) => g.platform))];
-  const fromEmulators = [...new Set((loadConfig().emulators || []).flatMap((e) => e.platforms))];
-  const owned = [...new Set([...inLibrary, ...fromEmulators])].filter((p) => WASM_CORES[p]);
-
-  if (owned.length) return owned;
-
-  // Nothing scanned yet: a sensible starter set of the systems that run best.
-  console.log('No library yet — fetching the cores that work best in-app.\n');
-  return ['gb', 'gbc', 'gba', 'nes', 'snes', 'genesis'];
 }
 
 function showList() {
@@ -73,58 +45,41 @@ async function main() {
     return;
   }
 
-  const platforms = wantedPlatforms();
-  // Several systems share a core; download each one once.
-  const cores = [...new Set(platforms.map((p) => WASM_CORES[p].core))];
+  const named = args.filter((a) => a !== 'all' && WASM_CORES[a]);
+  const want = args.includes('all') ? 'all' : (named.length ? named : 'owned');
+  const platforms = resolvePlatforms(want, loadConfig(), loadLibrary());
 
+  if (want === 'owned' && !named.length) {
+    const inLibrary = new Set(loadLibrary().games.map((g) => g.platform));
+    if (!platforms.some((p) => inLibrary.has(p))) {
+      console.log('No library yet — fetching the cores that work best in-app.\n');
+    }
+  }
+
+  const plan = installPlan(platforms);
   console.log(`\nFetching the in-app player into ${coresRoot}`);
   console.log(`Systems: ${platforms.map((p) => platformMeta(p).short).join(', ')}`);
-  console.log(`Cores:   ${cores.join(', ')}\n`);
+  console.log(`Cores:   ${plan.cores.join(', ')}\n`);
 
-  let total = 0;
-  let failed = 0;
-
-  for (const file of RUNTIME_FILES) {
-    const dest = path.join(coresRoot, file);
-    process.stdout.write(`  ${file.padEnd(34)} `);
-    if (fs.existsSync(dest)) {
-      console.log('already there');
-      continue;
-    }
-    try {
-      const size = await download(`${CORE_CDN}/${file}`, dest);
-      total += size;
-      console.log(bytes(size));
-    } catch (err) {
-      failed++;
-      console.log(`FAILED — ${err.message}`);
-    }
+  if (!plan.files.length) {
+    console.log('Everything is already there.\n');
+    return;
   }
 
-  for (const core of cores) {
-    for (const rel of coreFilesFor(core)) {
-      const dest = path.join(coresRoot, rel);
-      process.stdout.write(`  ${rel.replace('cores/', '').padEnd(34)} `);
-      if (fs.existsSync(dest)) {
-        console.log('already there');
-        continue;
-      }
-      try {
-        const size = await download(`${CORE_CDN}/${rel}`, dest);
-        total += size;
-        console.log(bytes(size));
-      } catch (err) {
-        failed++;
-        console.log(`FAILED — ${err.message}`);
-      }
-    }
-  }
+  const result = await installCores(platforms, {
+    onProgress: (p) => {
+      if (p.phase === 'file') process.stdout.write(`  ${p.label.padEnd(34)} `);
+      if (p.phase === 'file-done') console.log(p.error ? `FAILED — ${p.error}` : bytes(p.bytes));
+    },
+  });
 
-  console.log(`\nDownloaded ${bytes(total)}${failed ? `, ${failed} failed` : ''}.`);
-  if (!failed) {
+  console.log(
+    `\nDownloaded ${bytes(result.bytes)}${result.failed.length ? `, ${result.failed.length} failed` : ''}.`,
+  );
+  if (!result.failed.length) {
     console.log('Restart EmuSteam and games for these systems get a "Play here" button.\n');
   }
-  process.exit(failed ? 1 : 0);
+  process.exit(result.failed.length ? 1 : 0);
 }
 
 main().catch((err) => {

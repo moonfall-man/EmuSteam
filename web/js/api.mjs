@@ -84,6 +84,9 @@ export const api = {
 
   reconcileWorkspace: () => request('POST', '/api/workspace/reconcile', {}),
   organizeWorkspace: () => request('POST', '/api/workspace/organize', {}),
+  // 'all', 'owned', or an array of platform ids.
+  installCores: (platforms = 'owned') => request('POST', '/api/cores/install', { platforms }),
+
   setLibraryLocation: (path) => request('POST', '/api/workspace/location', { path }),
   bringEmulators: (from, to) => request('POST', '/api/workspace/bring-emulators', { from, to }),
 
@@ -109,7 +112,9 @@ export function artUrl(artPath) {
  */
 export function subscribeEvents(onEvent) {
   const source = new EventSource(`/events?t=${encodeURIComponent(TOKEN)}`);
-  for (const name of ['session', 'scan', 'library', 'art', 'import']) {
+  // EventSource only delivers named events you have asked for, so anything the
+  // server broadcasts under a new name is silently dropped until it is listed here.
+  for (const name of ['session', 'scan', 'library', 'art', 'import', 'cores']) {
     source.addEventListener(name, (ev) => {
       let data = {};
       try {

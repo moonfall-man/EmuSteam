@@ -18,8 +18,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { appRoot, dataRoot, workspaceRoot } from './paths.mjs';
 
-/** Where the assets are mirrored from, if you want to fetch them by hand. */
-export const CORE_CDN = 'https://cdn.emulatorjs.org/stable/data';
+/**
+ * Where the assets come from, if you want to fetch them by hand.
+ *
+ * `EMUSTEAM_CORE_CDN` points it at a mirror — useful on a machine that cannot
+ * reach the CDN, and what the test suite uses so a test run never depends on
+ * the network or downloads anything real.
+ */
+export const CORE_CDN = process.env.EMUSTEAM_CORE_CDN || 'https://cdn.emulatorjs.org/stable/data';
 
 /**
  * The EmulatorJS runtime.
@@ -188,14 +194,10 @@ export function wasmInfoFor(platform) {
     };
   }
   if (!runtimeInstalled()) {
-    return { ...entry, ready: false, reason: 'Run `npm run fetch-cores` to download the in-app player.' };
+    return { ...entry, ready: false, reason: 'The in-app player is not downloaded yet.' };
   }
   if (!coreComplete(entry.core)) {
-    return {
-      ...entry,
-      ready: false,
-      reason: `The ${entry.core} core is missing or incomplete. Run: npm run fetch-cores`,
-    };
+    return { ...entry, ready: false, reason: `The ${entry.core} core is missing or incomplete.` };
   }
   return { ...entry, ready: true, reason: null };
 }
@@ -213,7 +215,6 @@ export function wasmCatalogue() {
     platform,
     ...entry,
     installed: coreComplete(entry.core),
-    fetchWith: `npm run fetch-cores -- ${platform}`,
   }));
 
   return {

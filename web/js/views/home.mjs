@@ -6,7 +6,9 @@
 
 import { h } from './../util.mjs';
 import { gameCard, platformCard, allGamesCard, actionCard, rail } from './../cards.mjs';
-import { addSourceFlow, addEmulatorFlow, rescan, setLibraryLocationFlow } from './../flows.mjs';
+import {
+  addSourceFlow, addEmulatorFlow, addPlayableFlow, rescan, setLibraryLocationFlow,
+} from './../flows.mjs';
 import { GALAXY_TINT } from './../art.mjs';
 
 const MAX_RAIL = 16;
@@ -190,9 +192,9 @@ function onboarding(ctx) {
           ? 'Nothing else needed. Add a standalone emulator too if you want one.'
           : hasEmulators
             ? 'Add another, or scan your folders.'
-            : 'Run  npm run fetch-cores  and 22 systems play right here — nothing to install. Or click to pick an emulator .exe you already have.',
+            : `Download the in-app player and ${state.inApp?.supported?.length ?? 22} systems play right here — nothing to install. Or point at an emulator you already have.`,
         async () => {
-          if (await addEmulatorFlow(state)) refresh();
+          if (await addPlayableFlow(state)) refresh();
         },
       ),
       step(

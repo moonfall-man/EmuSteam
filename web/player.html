@@ -601,7 +601,7 @@
   const script = document.createElement('script');
   script.src = '/cores/loader.js';
   script.onerror = () =>
-    post('error', { message: 'The in-app player is not installed. Run: npm run fetch-cores' });
+    post('error', { message: 'The in-app player is not downloaded yet — Settings, Play in the app.' });
   document.body.appendChild(script);
 })();
 </script>

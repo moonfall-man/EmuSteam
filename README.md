@@ -25,14 +25,19 @@ an AudioWorklet, input through the same Gamepad API the couch UI already uses.
 No process launch, no window handoff, no two-second wait. Press A and you're in
 the game.
 
+Get them from **Settings → Play in the app** — a Download button per system, or
+one for all of them. There is a command-line equivalent for setting a machine up
+before first launch:
+
 ```bash
 npm run fetch-cores          # once — grabs the cores for the systems you own
 npm run fetch-cores -- list  # what's available, what you have
 ```
 
-Cores are ~1–2 MB each and land in `data/cores/`. That command is the **only** part of
-EmuSteam that touches the network, and it only runs when you ask; everything is
-served from disk afterwards.
+Cores are ~1–2 MB each and land in `data/cores/`. Downloading them is the only
+thing in EmuSteam that touches the network, whichever way you start it, and it
+only happens when you ask; everything is served from disk afterwards. Point
+`EMUSTEAM_CORE_CDN` at a mirror if you cannot reach the default one.
 
 That claim is enforced, not just intended. EmulatorJS itself pings
 `cdn.emulatorjs.org` for a version check on every game start and offers no way to
@@ -63,7 +68,7 @@ TurboGrafx-16, TurboGrafx-CD, Neo Geo Pocket Color, WonderSwan, Atari Lynx,
 Arcade, Neo Geo, C64 and Amiga.
 
 Settings → **Play in app** lists all of them all the time — which have their core
-downloaded, which are one command away, and which systems need a standalone
+downloaded, which are one click away, and which systems need a standalone
 emulator instead, with the reason for each.
 
 ### It suspends like a console
@@ -486,8 +491,10 @@ and it never touches your real config.
   title — so the grid never looks broken. You can also assign art by hand.
 - **Play time and history**, like a store page. Continue-playing rail, play
   counts, favourites, hidden games.
-- **Nothing phones home.** No accounts, no telemetry, no art scraping, no
-  network calls at all. It reads your disk and launches your programs.
+- **Nothing phones home.** No accounts, no telemetry, no background requests.
+  The only things that ever reach the network are the two downloads you press a
+  button for — cores and box art. Otherwise it reads your disk and launches your
+  programs.
 
 ## Supported systems
 

@@ -94,6 +94,72 @@ export async function setLibraryLocationFlow(state, folder = null) {
   return true;
 }
 
+/**
+ * Download the in-app player.
+ *
+ * Kicks the download off and returns — the server streams 'cores' events and the
+ * progress card in app.mjs follows them, the same as scanning and importing. The
+ * caller gets told whether anything actually started so it can avoid a pointless
+ * refresh.
+ *
+ * @param {'all'|'owned'|string[]} platforms
+ * @param {string} what  how to describe it in the toast
+ * @returns {Promise<boolean>} true when a download began
+ */
+export async function downloadCoresFlow(platforms = 'owned', what = 'the in-app player') {
+  try {
+    const res = await api.installCores(platforms);
+    if (res.alreadyComplete) {
+      toast.info('Already downloaded — nothing to fetch.');
+      return false;
+    }
+    toast.info(`Downloading ${what} — ${res.files} file${res.files === 1 ? '' : 's'}.`);
+    return true;
+  } catch (err) {
+    toast.error(err.message);
+    return false;
+  }
+}
+
+/**
+ * Step 2 of setup: get something to play games with.
+ *
+ * Two genuinely different answers, so it asks rather than guessing. Downloading
+ * cores is first because it needs nothing from the user — no file to find, no
+ * emulator to have installed already — and covers most retro systems.
+ */
+export async function addPlayableFlow(state) {
+  const runtimeReady = state.inApp?.runtimeInstalled;
+  const missing = (state.inApp?.supported || []).filter((row) => !row.installed).length;
+
+  const picked = await chooseModal({
+    title: 'What should play your games?',
+    note: 'Most retro systems can run inside EmuSteam. The heavier consoles need a real emulator.',
+    options: [
+      {
+        id: 'cores',
+        title: runtimeReady ? 'Download more systems' : 'Play them in the app',
+        note: runtimeReady
+          ? `${missing} system${missing === 1 ? '' : 's'} left to download, about 1–2 MB each.`
+          : 'Downloads the player and the cores for your systems — about 1–2 MB each, nothing to install.',
+        // focus, not selected: these are actions, and "Current" would read as a
+        // setting that is already in force.
+        focus: true,
+        disabled: runtimeReady && missing === 0,
+      },
+      {
+        id: 'emulator',
+        title: 'Point at an emulator I already have',
+        note: 'For PS2, GameCube, Wii and anything else that needs the real thing.',
+      },
+    ],
+  });
+
+  if (picked === null) return false;
+  if (picked === 'emulator') return addEmulatorFlow(state);
+  return downloadCoresFlow('owned');
+}
+
 /** Add a ROM folder: pick it, confirm the platform, save, rescan. */
 export async function addSourceFlow(state) {
   const folder = await browseModal({

@@ -26,6 +26,7 @@ import {
 } from './paths.mjs';
 import { emulatorsForPlatform, emulatorExists, isPlatformPlayable } from './emulators.mjs';
 import { installedCores, wasmInfoFor, wasmCatalogue } from './cores.mjs';
+import { resolvePlatforms, installPlan, installCores } from './coreinstall.mjs';
 import { playableDiscFile } from './discs.mjs';
 import { fetchArtwork } from './artfetch.mjs';
 import { planImport, importRoms } from './importer.mjs';
@@ -294,6 +295,7 @@ function suspendedAtFor(gameId) {
  * fight over the same temp files and double the load on someone else's archive.
  */
 let artRun = null;
+let coreRun = null;
 
 // -------------------------------------------------------------- SSE plumbing
 
@@ -605,6 +607,35 @@ export async function handleApi(method, url, body) {
       saveLibrary(library);
       broadcast('library', { scannedAt: library.scannedAt, count: library.games.length });
       return { ...result, games: library.games.length };
+    }
+
+    case 'POST /api/cores/install': {
+      // Downloads the in-app player. The only route that reaches the network,
+      // and only when someone presses a button — see coreinstall.mjs for why the
+      // URL cannot be influenced from here.
+      if (coreRun) throw bad('A core download is already running.');
+
+      const want = body?.platforms === 'all' || body?.platforms === 'owned'
+        ? body.platforms
+        : Array.isArray(body?.platforms) ? body.platforms : 'owned';
+      const platforms = resolvePlatforms(want, loadConfig(), loadLibrary());
+      if (!platforms.length) throw bad('No systems to download a core for.');
+
+      const plan = installPlan(platforms);
+      if (!plan.files.length) {
+        return { started: false, alreadyComplete: true, platforms, files: 0 };
+      }
+
+      coreRun = installCores(platforms, { onProgress: (p) => broadcast('cores', p) })
+        .catch((err) => {
+          broadcast('cores', { phase: 'error', message: err.message });
+          return { downloaded: 0, bytes: 0, failed: [{ file: '', message: err.message }] };
+        })
+        .finally(() => { coreRun = null; });
+
+      // Returns straight away; the UI follows the 'cores' events rather than
+      // holding a request open for a 30 MB download.
+      return { started: true, platforms, cores: plan.cores, files: plan.files.length };
     }
 
     case 'POST /api/art/fetch': {

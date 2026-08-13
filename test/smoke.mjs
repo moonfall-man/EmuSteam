@@ -139,17 +139,50 @@ function writeFixtures() {
   };
 }
 
+// ---------------------------------------------------------------- stub CDN
+
+/**
+ * Stands in for cdn.emulatorjs.org so the core-download tests never touch the
+ * network — a test suite that downloads 30 MB from a third party is a test suite
+ * that fails on a train.
+ *
+ * Serves plausible bytes for any path, except one core deliberately wired to
+ * fail so the partial-download handling can be checked.
+ */
+const BROKEN_CORE_PATH = '/cores/mupen64plus_next-wasm.data';
+
+function startStubCdn() {
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith(BROKEN_CORE_PATH)) {
+      res.writeHead(500).end('nope');
+      return;
+    }
+    const body = Buffer.from(`stub:${req.url}`.padEnd(256, '.'));
+    res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-length': body.length });
+    res.end(body);
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+}
+
 // -------------------------------------------------------------------- server
 
-function startServer() {
+function startServer(cdnPort) {
   const child = spawn(
     process.execPath,
     [path.join(repoRoot, 'src', 'main.mjs'), '--no-open', '--port', String(PORT)],
     {
       cwd: repoRoot,
-      // Both overrides matter: without EMUSTEAM_WORKSPACE a test run would
-      // create roms/<System>/ folders inside the real repo.
-      env: { ...process.env, EMUSTEAM_DATA: dataRoot, EMUSTEAM_WORKSPACE: workspaceRoot },
+      // All three overrides matter: without EMUSTEAM_WORKSPACE a test run would
+      // create roms/<System>/ folders inside the real repo, and without
+      // EMUSTEAM_CORE_CDN the download tests would hit the real CDN.
+      env: {
+        ...process.env,
+        EMUSTEAM_DATA: dataRoot,
+        EMUSTEAM_WORKSPACE: workspaceRoot,
+        EMUSTEAM_CORE_CDN: `http://127.0.0.1:${cdnPort}`,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -176,7 +209,8 @@ async function waitForServer(base, timeoutMs = 15_000) {
 
 const fixtures = writeFixtures();
 const base = `http://127.0.0.1:${PORT}`;
-const server = startServer();
+const cdn = await startStubCdn();
+const server = startServer(cdn.port);
 
 let exitCode = 0;
 try {
@@ -1171,7 +1205,7 @@ try {
   let gbPlat = (await call('GET', '/api/state')).json.platforms.find((p) => p.id === 'gb');
   check('a WASM-capable system is not "ready" without the runtime',
     gbPlat?.wasm?.ready === false, JSON.stringify(gbPlat?.wasm));
-  check('and says how to fix it', /fetch-cores/.test(gbPlat?.wasm?.reason || ''), gbPlat?.wasm?.reason);
+  check('and says what is missing', /not downloaded yet/.test(gbPlat?.wasm?.reason || ''), gbPlat?.wasm?.reason);
 
   // A system with no WASM core at all must say *why*, not just "no".
   const n64Plat = (await call('GET', '/api/state')).json.platforms.find((p) => p.id === 'n64');
@@ -1228,6 +1262,50 @@ try {
     (await call('GET', '/api/state')).json.platforms.find((p) => p.id === 'gb')?.wasm?.ready === false);
   fs.writeFileSync(path.join(coresDir, 'cores/gambatte-legacy-wasm.data'), 'x');
 
+  // Downloading from inside the app, against the stub CDN above — the real one
+  // is never contacted.
+  section('downloading cores from inside the app');
+
+  const coreReady = async (id) =>
+    (await call('GET', '/api/cores')).json.platforms.find((r) => r.platform === id)?.installed === true;
+  const waitForCore = async (id, want = true, timeoutMs = 10_000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (await coreReady(id) === want) return true;
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    return false;
+  };
+
+  check('NES cannot play yet', await coreReady('nes') === false);
+  let install = await call('POST', '/api/cores/install', { platforms: ['nes'] });
+  check('the install starts', install.json?.started === true, JSON.stringify(install.json));
+  check('and names the core it will fetch', install.json?.cores?.includes('fceumm'),
+    JSON.stringify(install.json?.cores));
+  check('NES becomes playable once the download lands', await waitForCore('nes'));
+  check('the core files are really on disk',
+    fs.existsSync(path.join(coresDir, 'cores/fceumm-wasm.data')));
+
+  // A truncated core would still pass an exists() check and then fail at load
+  // time with a bare network error, so downloads land via rename.
+  const strays = fs.readdirSync(path.join(coresDir, 'cores')).filter((f) => f.endsWith('.part'));
+  check('no half-written .part files are left behind', strays.length === 0, strays.join(', '));
+
+  check('asking again downloads nothing',
+    (await call('POST', '/api/cores/install', { platforms: ['nes'] })).json?.alreadyComplete === true);
+
+  // The stub answers 500 for this one core.
+  await call('POST', '/api/cores/install', { platforms: ['n64'] });
+  await new Promise((r) => setTimeout(r, 1200));
+  check('a failed download leaves the system unplayable', await coreReady('n64') === false);
+  const partials = fs.readdirSync(path.join(coresDir, 'cores')).filter((f) => f.endsWith('.part'));
+  check('and writes no partial file', partials.length === 0, partials.join(', '));
+  check('the file it could not fetch is simply absent',
+    !fs.existsSync(path.join(coresDir, 'cores/mupen64plus_next-wasm.data')));
+
+  check('an unknown system is rejected',
+    (await call('POST', '/api/cores/install', { platforms: ['nintendo-64-ultra'] })).status === 400);
+
   section('player asset + ROM serving');
   // Core assets are deliberately token-free: EmulatorJS concatenates onto the
   // data path, so a query string would corrupt every derived URL.
@@ -1236,7 +1314,7 @@ try {
   check('core asset traversal is blocked',
     [403, 404].includes((await rawGet('/cores/../../src/store.mjs')).status));
   check('a missing core asset explains itself',
-    (await (await rawGet('/cores/cores/nope-wasm.data')).text()).includes('fetch-cores'));
+    (await (await rawGet('/cores/cores/nope-wasm.data')).text()).includes('Play in the app'));
 
   const gbGame = (await call('GET', '/api/state')).json.games.find((g) => g.platform === 'gb');
   if (gbGame) {
@@ -1591,6 +1669,7 @@ try {
   exitCode = 1;
 } finally {
   server.kill();
+  cdn.server.close();
   // Give Windows a moment to release the file handles before removing the tree.
   await new Promise((r) => setTimeout(r, 300));
   try {
