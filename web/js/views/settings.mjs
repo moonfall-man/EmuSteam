@@ -1038,7 +1038,15 @@ function libraryLocationPanel(ctx) {
             : h('span', { class: 'chip pill-good', text: 'shared' }),
           fixedByEnv ? h('span', { class: 'chip', text: 'set by EMUSTEAM_WORKSPACE' }) : null,
         ),
+        // Show where games actually land, not just the root you picked. EmuSteam
+        // creates roms/ and emulators/ *inside* it, and "why is there a roms
+        // folder in my folder" is the first question that gets asked otherwise.
         h('div', { class: 'listrow-sub', text: root }),
+        h('div', {
+          class: 'field-hint',
+          style: { marginTop: '6px' },
+          text: `Games go in ${caps.romsRoot || `${root}\\roms`} — importing, dragging, and copying files there by hand all end up in the same place.`,
+        }),
       ),
       fixedByEnv
         ? h('span', { class: 'field-hint', text: 'Unset the variable to change it here' })

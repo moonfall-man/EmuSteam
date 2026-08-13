@@ -216,6 +216,11 @@ same in the other account.
 |---|---|
 | `roms/`, `emulators/`, `cores/` | saves, save states, suspended sessions, favourites, play time, settings |
 
+EmuSteam creates `roms/` and `emulators/` **inside** the folder you pick, and from
+then on everything targets them: importing, dragging onto the window, and copying
+files in by hand all land in the shared `roms/` and get sorted there. The `roms/`
+folder inside the app itself goes unused.
+
 That split is the point: two people share the games and keep their own progress.
 Changing the location **never moves anything** — relocating gigabytes is your
 call, so move or import the games yourself afterwards. It takes effect on the next
