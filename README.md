@@ -201,6 +201,29 @@ network, and it only runs when you ask — by pressing the button or typing the
 command. Nothing fetches on a timer or at startup, and the in-app player actively
 blocks outbound requests.
 
+## Sharing one library between Windows accounts
+
+By default your games live inside the EmuSteam folder, which is what makes it
+portable: zip the whole thing, hand it to someone, it works. But copying that
+folder into a second Windows profile copies **every ROM with it** — two accounts,
+two copies of a 3 GB disc image.
+
+So point them at one library instead. **Settings → ROM folders → Where the games
+live → Change…**, pick a shared folder (`D:GamesEmuSteam`, say), and do the
+same in the other account.
+
+| Shared | Kept per account |
+|---|---|
+| `roms/`, `emulators/`, `cores/` | saves, save states, suspended sessions, favourites, play time, settings |
+
+That split is the point: two people share the games and keep their own progress.
+Changing the location **never moves anything** — relocating gigabytes is your
+call, so move or import the games yourself afterwards. It takes effect on the next
+launch, because the paths are resolved once at startup.
+
+`EMUSTEAM_WORKSPACE` does the same job from the environment and wins over the
+setting, which is how the test suite guarantees it can never touch a real library.
+
 ## Big libraries
 
 Two things matter once a library gets past a few thousand games, and both are

@@ -84,6 +84,7 @@ export const api = {
 
   reconcileWorkspace: () => request('POST', '/api/workspace/reconcile', {}),
   organizeWorkspace: () => request('POST', '/api/workspace/organize', {}),
+  setLibraryLocation: (path) => request('POST', '/api/workspace/location', { path }),
 
   browse: (path, kind) => request('POST', '/api/browse', { path, kind }),
   dialog: (kind, initial, title) => request('POST', '/api/dialog', { kind, initial, title }),

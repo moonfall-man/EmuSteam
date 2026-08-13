@@ -20,7 +20,10 @@ import { assignArt, clearArt, manualArtFor, manualArtIndex, isImagePath } from '
 import {
   listDirectory, pickFolder, pickFile, pickFiles, nativeDialogsAvailable, defaultBrowseStart,
 } from './filesystem.mjs';
-import { fromPortable, toPortable, commonRomLocations, appRoot, dataRoot } from './paths.mjs';
+import {
+  fromPortable, toPortable, commonRomLocations, appRoot, dataRoot,
+  workspaceRoot, workspaceSource, libraryLocationFile,
+} from './paths.mjs';
 import { emulatorsForPlatform, emulatorExists, isPlatformPlayable } from './emulators.mjs';
 import { installedCores, wasmInfoFor, wasmCatalogue } from './cores.mjs';
 import { playableDiscFile } from './discs.mjs';
@@ -383,6 +386,11 @@ export async function handleApi(method, url, body) {
           dataRoot,
           romsRoot,
           emulatorsRoot,
+          // Where roms/ and emulators/ actually live, and why. Several installs
+          // pointed at one folder is how Windows accounts share a library.
+          libraryRoot: workspaceRoot,
+          libraryRootSource: workspaceSource,
+          libraryIsDefault: workspaceRoot === appRoot,
           suggestedRomFolders: commonRomLocations(),
         },
       };
@@ -476,6 +484,41 @@ export async function handleApi(method, url, body) {
       const file = path.join(saveStateDir(game.id), `${slot}.state`);
       if (!safeExists(file)) throw notFound('No save state in that slot.');
       return { data: fs.readFileSync(file).toString('base64'), slot };
+    }
+
+    case 'POST /api/workspace/location': {
+      // Points roms/ and emulators/ somewhere else. Deliberately does *not* move
+      // anything: relocating gigabytes is the user's call, and silently moving a
+      // library because someone changed a setting would be indefensible.
+      if (workspaceSource === 'env') {
+        throw bad('The library location is fixed by the EMUSTEAM_WORKSPACE environment variable.');
+      }
+      const raw = String(body?.path || '').trim();
+
+      if (!raw) {
+        // Empty means "back to the app folder".
+        try {
+          fs.rmSync(libraryLocationFile, { force: true });
+        } catch { /* already gone */ }
+        return { ok: true, libraryRoot: appRoot, restartRequired: true };
+      }
+
+      const target = path.resolve(raw);
+      let stat = null;
+      try {
+        stat = fs.statSync(target);
+      } catch {
+        throw bad(`That folder does not exist: ${target}`);
+      }
+      if (!stat.isDirectory()) throw bad('That path is not a folder.');
+      if (target === dataRoot || target.startsWith(dataRoot + path.sep)) {
+        throw bad('The library cannot live inside the data folder — that is where saves and settings go.');
+      }
+
+      fs.mkdirSync(dataRoot, { recursive: true });
+      fs.writeFileSync(libraryLocationFile, target, 'utf8');
+      // Paths are resolved once at startup, so this only takes effect next launch.
+      return { ok: true, libraryRoot: target, restartRequired: true };
     }
 
     case 'POST /api/import/pick': {

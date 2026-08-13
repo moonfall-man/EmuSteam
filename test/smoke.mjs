@@ -484,6 +484,31 @@ try {
   await call('POST', '/api/emulators/remove', { id: gbEmuId });
   await call('POST', '/api/scan');
 
+  section('where the games live');
+  {
+    // Pointing roms/ and emulators/ at a shared folder is how several Windows
+    // accounts use one library while keeping separate saves. The server under
+    // test has EMUSTEAM_WORKSPACE set, which deliberately wins over the file, so
+    // what is checked here is that the override is reported and refuses to be
+    // silently overridden in turn.
+    const caps = (await call('GET', '/api/state')).json.capabilities;
+    check('the library root is reported', typeof caps.libraryRoot === 'string' && caps.libraryRoot.length > 0,
+      JSON.stringify(caps.libraryRoot));
+    check('and where the setting came from', caps.libraryRootSource === 'env',
+      String(caps.libraryRootSource));
+    check('the library root is the workspace, not the app folder',
+      caps.libraryRoot === workspaceRoot, `${caps.libraryRoot} vs ${workspaceRoot}`);
+
+    // An env var is a deliberate act by whoever launched the process; a settings
+    // click must not quietly override it.
+    r = await call('POST', '/api/workspace/location', { path: tmpRoot });
+    check('an env-var override cannot be changed from the UI', r.status === 400, r.text);
+    check('and says why', /EMUSTEAM_WORKSPACE/.test(r.text), r.text);
+
+    check('a missing folder is rejected',
+      (await call('POST', '/api/workspace/location', { path: path.join(tmpRoot, 'nope') })).status === 400);
+  }
+
   section('uploading ROMs from a browser');
   {
     // The upload route exists for the case a native dialog cannot serve: a

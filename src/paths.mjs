@@ -14,13 +14,45 @@ export const dataRoot = process.env.EMUSTEAM_DATA
   : path.join(appRoot, 'data');
 
 /**
- * Where the user-facing roms/ and emulators/ folders live. Normally the app
- * folder, which is what makes their paths portable. The test suite overrides it
- * so a test run can never create folders in the real repo.
+ * A one-line file holding an absolute path to the game library.
+ *
+ * Read here rather than from config.json because config.json lives under
+ * dataRoot and the store imports this module — a plain text file keeps the
+ * dependency pointing one way.
+ */
+export const libraryLocationFile = path.join(dataRoot, 'library-location.txt');
+
+/** @returns {string|null} the configured library root, or null when unset. */
+function configuredWorkspace() {
+  try {
+    const raw = fs.readFileSync(libraryLocationFile, 'utf8').trim();
+    return raw ? path.resolve(raw) : null;
+  } catch {
+    return null; // not configured, which is the normal case
+  }
+}
+
+/**
+ * Where the user-facing roms/, emulators/ and cores/ folders live.
+ *
+ * Normally the app folder, which is what makes their paths portable — zip the
+ * whole thing, hand it over, and it still works.
+ *
+ * Pointing it somewhere else is how several Windows accounts share one library:
+ * each profile keeps its own app copy and its own data/ (saves, play time,
+ * favourites), while roms/ and emulators/ live once on a shared drive. Copying
+ * the app folder per profile would otherwise duplicate every ROM.
+ *
+ * The env var wins so a test run can never touch the real library.
  */
 export const workspaceRoot = process.env.EMUSTEAM_WORKSPACE
   ? path.resolve(process.env.EMUSTEAM_WORKSPACE)
-  : appRoot;
+  : configuredWorkspace() || appRoot;
+
+/** Where the library root came from, for the UI to explain itself. */
+export const workspaceSource = process.env.EMUSTEAM_WORKSPACE
+  ? 'env'
+  : (configuredWorkspace() ? 'file' : 'default');
 
 export const artRoot = path.join(dataRoot, 'art');
 export const configFile = path.join(dataRoot, 'config.json');

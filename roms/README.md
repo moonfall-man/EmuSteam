@@ -64,6 +64,13 @@ button for when you want it.
 - **Removing an emulator** removes its folder only if that folder is empty. Your
   games are never deleted to follow an uninstall.
 
+## Sharing this folder between Windows accounts
+
+Copying the whole EmuSteam folder into a second profile also copies every ROM.
+Instead, point both installs at one library: **Settings → ROM folders → Where the
+games live**. `roms/`, `emulators/` and `cores/` are then shared, while saves,
+save states, favourites and play time stay separate per account.
+
 ## Why it's empty in a fresh clone
 
 These folders are generated from what *you* have, so only this README is

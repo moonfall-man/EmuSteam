@@ -425,6 +425,8 @@ function libraryPanel(ctx) {
         },
       }),
     ),
+    // Last, because it is a setup decision rather than a daily one.
+    libraryLocationPanel(ctx),
   );
 }
 
@@ -971,5 +973,108 @@ function aboutPanel(ctx) {
           ),
         )
       : null,
+  );
+}
+
+/**
+ * Where roms/ and emulators/ live.
+ *
+ * Normally inside the app folder, which is what makes the whole thing portable.
+ * Pointing it at a shared drive is how several Windows accounts use one library:
+ * each keeps its own copy of the app and its own saves, favourites and play time,
+ * while the games exist once.
+ *
+ * Changing it never moves anything. Relocating gigabytes is the user's decision,
+ * and doing it as a side effect of a settings change would be indefensible.
+ */
+function libraryLocationPanel(ctx) {
+  const { state, refresh } = ctx;
+  const caps = state.capabilities || {};
+  const root = caps.libraryRoot || caps.appRoot || '';
+  const isDefault = caps.libraryIsDefault !== false;
+  const fixedByEnv = caps.libraryRootSource === 'env';
+
+  const setLocation = async (folder) => {
+    try {
+      const res = await api.setLibraryLocation(folder);
+      await confirmModal({
+        title: 'Restart EmuSteam to finish',
+        note: `The library will be read from:\n\n${res.libraryRoot}\n\n`
+          + 'Nothing was moved — your existing games are still where they were. Close and '
+          + 'reopen EmuSteam for the change to take effect, then import or copy your games '
+          + 'into the new location.',
+        confirmLabel: 'Got it',
+        cancelLabel: 'Close',
+      });
+      refresh({ keepFocus: true });
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  return h(
+    'section',
+    { class: 'panel' },
+    h('h2', { class: 'panel-title', text: 'Where the games live' }),
+    h('p', {
+      class: 'panel-note',
+      text: isDefault
+        ? 'Your games and emulators live inside the EmuSteam folder, which keeps the whole thing portable — zip it, hand it to someone, it still works. Point it somewhere else to share one library between several Windows accounts.'
+        : 'Your games and emulators live outside the EmuSteam folder. Several installs can point at this same location and share it; each keeps its own saves, favourites and play time.',
+    }),
+
+    h(
+      'div',
+      { class: 'listrow' },
+      h(
+        'div',
+        { class: 'listrow-main' },
+        h(
+          'div',
+          { class: 'listrow-title' },
+          h('span', { text: 'Library folder' }),
+          isDefault
+            ? h('span', { class: 'chip', text: 'in the app folder' })
+            : h('span', { class: 'chip pill-good', text: 'shared' }),
+          fixedByEnv ? h('span', { class: 'chip', text: 'set by EMUSTEAM_WORKSPACE' }) : null,
+        ),
+        h('div', { class: 'listrow-sub', text: root }),
+      ),
+      fixedByEnv
+        ? h('span', { class: 'field-hint', text: 'Unset the variable to change it here' })
+        : h(
+            'div',
+            { class: 'listrow-actions' },
+            h('button', {
+              class: 'btn btn-sm',
+              nav: true,
+              'data-nav-key': 'lib-change',
+              text: 'Change…',
+              onClick: async () => {
+                const folder = await browseModal({
+                  kind: 'folder',
+                  title: 'Where should the games live?',
+                  nativeDialogs: !!state.capabilities?.nativeDialogs,
+                });
+                if (folder) await setLocation(folder);
+              },
+            }),
+            isDefault
+              ? null
+              : h('button', {
+                  class: 'btn btn-sm btn-ghost',
+                  nav: true,
+                  'data-nav-key': 'lib-reset',
+                  text: 'Use the app folder',
+                  onClick: () => setLocation(''),
+                }),
+          ),
+    ),
+
+    h('p', {
+      class: 'field-hint',
+      style: { marginTop: '14px' },
+      text: 'Saves, save states, favourites and play time always stay in this install’s own data/ folder, never in the shared one — so two people sharing a library still have separate progress.',
+    }),
   );
 }
