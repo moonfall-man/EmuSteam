@@ -484,6 +484,75 @@ try {
   await call('POST', '/api/emulators/remove', { id: gbEmuId });
   await call('POST', '/api/scan');
 
+  section('games that arrive as a folder or a zip');
+  {
+    // Disc games are usually distributed as a folder holding a .cue and its .bin,
+    // and dropping that folder into roms/ is the obvious thing to do. It used to
+    // be reported as an unrecognised *system* — "no emulator can play
+    // Crash Bandicoot (USA)" — and never moved.
+    const inRoms = (...bits) => path.join(workspaceRoot, 'roms', ...bits);
+    const RAWSEC = 16 * 2352 + 24;
+    const discImage = (marks) => {
+      const buf = Buffer.alloc(64 * 1024);
+      for (const [at, text] of marks) buf.write(text, at, 'latin1');
+      return buf;
+    };
+
+    fs.mkdirSync(inRoms('Folder Disc (USA)'), { recursive: true });
+    fs.writeFileSync(inRoms('Folder Disc (USA)', 'Folder Disc (USA).bin'),
+      discImage([[RAWSEC, 'CD001'], [RAWSEC + 8, 'PLAYSTATION    ']]));
+    fs.writeFileSync(inRoms('Folder Disc (USA)', 'Folder Disc (USA).cue'),
+      'FILE "Folder Disc (USA).bin" BINARY\n  TRACK 01 MODE2/2352\n');
+    fs.writeFileSync(inRoms('Folder Disc (USA)', 'readme.txt'), 'notes');
+
+    fs.mkdirSync(inRoms('Folder Mixed'), { recursive: true });
+    fs.writeFileSync(inRoms('Folder Mixed', 'a.gb'), 'x');
+    fs.writeFileSync(inRoms('Folder Mixed', 'b.z64'), 'x');
+
+    fs.mkdirSync(inRoms('Folder Of Notes'), { recursive: true });
+    fs.writeFileSync(inRoms('Folder Of Notes', 'notes.txt'), 'x');
+
+    let ws = (await call('GET', '/api/state')).json.workspace;
+    const folderNamed = (n) => (ws.looseFolders || []).find((f) => f.name === n);
+    check('a folder holding one game is recognised as that game',
+      folderNamed('Folder Disc (USA)')?.folder === 'PS1',
+      JSON.stringify(ws.looseFolders));
+    check('and is not reported as an unrecognised system',
+      !(ws.strays || []).some((s) => s.name === 'Folder Disc (USA)'),
+      JSON.stringify(ws.strays));
+    check('a folder mixing systems is left alone, with the reason',
+      folderNamed('Folder Mixed')?.sortable === false
+        && /different systems/.test(folderNamed('Folder Mixed')?.reason || ''),
+      JSON.stringify(folderNamed('Folder Mixed')));
+    check('so is a folder with no games in it',
+      folderNamed('Folder Of Notes')?.sortable === false);
+
+    r = await call('POST', '/api/workspace/organize');
+    check('the whole folder moves as a unit',
+      fs.existsSync(inRoms('PS1', 'Folder Disc (USA)', 'Folder Disc (USA).cue'))
+        && fs.existsSync(inRoms('PS1', 'Folder Disc (USA)', 'Folder Disc (USA).bin')),
+      JSON.stringify(r.json.moved));
+    check('taking everything in it along',
+      fs.existsSync(inRoms('PS1', 'Folder Disc (USA)', 'readme.txt')));
+    check('and the ambiguous folders stay put',
+      fs.existsSync(inRoms('Folder Mixed', 'a.gb')) && fs.existsSync(inRoms('Folder Of Notes')));
+
+    await call('POST', '/api/scan');
+    check('the game inside the moved folder reaches the library',
+      (await call('GET', '/api/state')).json.games.some((g) => /Folder Disc/.test(g.title)));
+
+    // A .zip usually holds one game, and the archive index says which — readable
+    // without unpacking anything.
+    const { zipEntryNames } = await import('../src/archives.mjs');
+    check('a non-zip yields no entries', zipEntryNames(inRoms('Folder Mixed', 'a.gb')).length === 0);
+    check('a missing file yields no entries', zipEntryNames(inRoms('nope.zip')).length === 0);
+
+    for (const dir of ['PS1', 'Folder Mixed', 'Folder Of Notes']) {
+      fs.rmSync(inRoms(dir), { recursive: true, force: true });
+    }
+    await call('POST', '/api/scan');
+  }
+
   section('relocating the library');
   {
     // Run in a child process with its own EMUSTEAM_WORKSPACE, never in-process:

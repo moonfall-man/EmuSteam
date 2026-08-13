@@ -343,6 +343,11 @@ A PS1 disc says `PLAYSTATION` in its ISO 9660 descriptor, a Sega CD says
 `SEGADISCSYSTEM` in sector zero, and PS1 is told apart from PS2 by which boot line
 its `SYSTEM.CNF` uses. The UI shows what identified each one before it moves.
 
+**A game that arrives as a folder moves as a folder.** PS1 and PS2 discs usually
+ship as a directory holding a `.cue` and its `.bin`; that directory is identified
+by its contents and filed whole. A `.zip` is identified from its archive index
+without unpacking it.
+
 A **cue sheet and its tracks always travel together** — a sheet references its
 `.bin` by bare filename, so splitting them would break the game. One name
 collision blocks the whole set rather than moving half of it, and a failure partway

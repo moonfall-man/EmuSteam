@@ -24,6 +24,7 @@ import path from 'node:path';
 import { workspaceRoot, toPortable, fromPortable } from './paths.mjs';
 import { PLATFORMS, platformMeta, UNAMBIGUOUS_EXTS } from './platforms.mjs';
 import { identifyDiscImage, cueReferences } from './discs.mjs';
+import { zipEntryNames } from './archives.mjs';
 import { playablePlatformIds } from './emulators.mjs';
 import { findPreset } from './presets.mjs';
 import { isDocumentationFile } from './scanner.mjs';
@@ -320,6 +321,29 @@ export function classifyRomFile(absPath) {
   const byExt = UNAMBIGUOUS_EXTS.get(ext) || null;
   if (byExt) return { platform: byExt, evidence: null, reason: null };
 
+  // A .zip usually holds exactly one game, and the archive index says what.
+  // Reading names is cheap and needs no decompression; a zip whose contents are
+  // themselves ambiguous (a .bin and .cue, or an arcade set of .rom files) stays
+  // unidentified rather than being guessed at.
+  if (ext === '.zip') {
+    const inside = new Set();
+    for (const entry of zipEntryNames(absPath)) {
+      const owner = UNAMBIGUOUS_EXTS.get(path.extname(entry).toLowerCase());
+      if (owner) inside.add(owner);
+    }
+    if (inside.size === 1) {
+      const only = [...inside][0];
+      return { platform: only, evidence: `the archive holds a ${platformMeta(only).short} game`, reason: null };
+    }
+    return {
+      platform: null,
+      evidence: null,
+      reason: inside.size
+        ? `This archive holds games for ${inside.size} different systems.`
+        : 'Nothing inside this archive names a system.',
+    };
+  }
+
   const found = identifyDiscImage(absPath);
   if (found) return { platform: found.platform, evidence: found.evidence, reason: null };
 
@@ -361,7 +385,7 @@ export function looseRomFiles(config) {
     // documentation by name and let a real "Sonic.md" through.
     .filter((file) => file.ext && !isDocumentationFile(file.name))
     .map((file) => {
-      const { platform, evidence } = classifyRomFile(path.join(romsRoot, file.name));
+      const { platform, evidence, reason } = classifyRomFile(path.join(romsRoot, file.name));
       return {
         name: file.name,
         ext: file.ext,
@@ -376,11 +400,91 @@ export function looseRomFiles(config) {
         // way and the UI can tell you what is still missing.
         sortable: !!platform,
         needsEmulator: !!platform && !playable.has(platform),
+        // Prefer the specific reason — "holds games for 2 different systems"
+        // beats a generic "could be anything".
         reason: platform
           ? null
-          : `Nothing in this ${file.ext} identifies which system it is for, so it needs filing by hand.`,
+          : reason || `Nothing in this ${file.ext} identifies which system it is for.`,
       };
     });
+}
+
+/**
+ * Directories in roms/ that are one game rather than a system.
+ *
+ * Disc games are usually distributed as a folder: a .cue beside its .bin, or an
+ * .iso next to a readme. Dropping that folder straight into roms/ is the obvious
+ * thing to do, and it used to be reported as an unrecognised *system* — "roms/
+ * Crash Bandicoot (USA) has games but no emulator can play them" — which is both
+ * wrong and unhelpful.
+ *
+ * The folder moves as a unit rather than being emptied out. A cue sheet names its
+ * tracks by bare filename, so keeping them together is what makes the game work,
+ * and the scanner reads system folders recursively anyway.
+ */
+export function looseRomFolders(config) {
+  let entries;
+  try {
+    entries = fs.readdirSync(romsRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const playable = new Set(playablePlatformIds(config));
+  const out = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith('.')) continue;
+    // A recognised system name is a system folder, not a game.
+    if (platformForFolderName(entry.name)) continue;
+
+    const dir = path.join(romsRoot, entry.name);
+    const platforms = new Set();
+    let files = 0;
+
+    const walk = (at, depth) => {
+      if (depth > 3) return;
+      let kids;
+      try {
+        kids = fs.readdirSync(at, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const kid of kids) {
+        if (kid.isSymbolicLink()) continue;
+        if (kid.isDirectory()) {
+          walk(path.join(at, kid.name), depth + 1);
+        } else if (kid.isFile()) {
+          const { platform } = classifyRomFile(path.join(at, kid.name));
+          if (platform) {
+            platforms.add(platform);
+            files++;
+          }
+        }
+      }
+    };
+    walk(dir, 0);
+
+    const only = platforms.size === 1 ? [...platforms][0] : null;
+    out.push({
+      name: entry.name,
+      isFolder: true,
+      games: files,
+      platform: only,
+      platformName: only ? platformMeta(only).name : null,
+      folder: only ? folderNameFor(only) : null,
+      sortable: !!only,
+      needsEmulator: !!only && !playable.has(only),
+      reason: only
+        ? null
+        : platforms.size > 1
+          ? `This folder holds games for ${platforms.size} different systems, so it needs splitting by hand.`
+          : 'Nothing in this folder was recognised as a game.',
+    });
+  }
+
+  return out;
 }
 
 /**
@@ -469,6 +573,24 @@ export function planOrganize(config) {
     });
   }
 
+  // Whole-game folders move as one directory rename.
+  for (const folder of looseRomFolders(config)) {
+    if (!folder.platform) {
+      blocked.push({ name: folder.name, reason: folder.reason });
+      continue;
+    }
+    moves.push({
+      name: folder.name,
+      names: [folder.name],
+      isFolder: true,
+      from: romsRoot,
+      fromFolder: null,
+      platform: folder.platform,
+      folder: folder.folder,
+      platformName: folder.platformName,
+    });
+  }
+
   for (const file of misfiledRomFiles()) moves.push(file);
 
   return { moves, blocked };
@@ -544,15 +666,21 @@ export function organizeRoms(config) {
  * Folders sitting in roms/ that we do not recognise, so the UI can say
  * "roms/Dreamcast has games but no emulator can play them".
  */
-export function strayRomFolders() {
+export function strayRomFolders(config = { emulators: [] }) {
   let entries;
   try {
     entries = fs.readdirSync(romsRoot, { withFileTypes: true });
   } catch {
     return [];
   }
+  // A folder holding one game is reported by looseRomFolders instead; calling it
+  // an unrecognised *system* would be nonsense ("no emulator can play
+  // Crash Bandicoot (USA)").
+  const gameFolders = new Set(looseRomFolders(config).map((f) => f.name));
+
   return entries
     .filter((entry) => entry.isDirectory())
+    .filter((entry) => !gameFolders.has(entry.name))
     .map((entry) => ({
       name: entry.name,
       platform: platformForFolderName(entry.name),
@@ -606,7 +734,10 @@ export function workspaceSummary(config) {
         empty: isEmptyDir(path.join(romsRoot, folderNameFor(id))),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
-    strays: strayRomFolders().filter((s) => !playable.includes(s.platform)),
+    strays: strayRomFolders(config).filter((s) => !playable.includes(s.platform)),
+    // Folders holding a single game, e.g. a PS1 disc shipped as a .cue + .bin
+    // pair inside its own directory.
+    looseFolders: looseRomFolders(config),
     loose: looseRomFiles(config),
     misfiled: misfiledRomFiles(),
   };

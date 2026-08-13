@@ -28,6 +28,18 @@ Settings → **Add ROM folder** and point at it instead. Nothing gets moved.
 
 A `.gb` goes to `GB/`, a `.z64` to `N64/`, and so on by file extension.
 
+**Games that arrive as a folder** — the usual way PS1 and PS2 discs are
+distributed, a `.cue` beside its `.bin` — are recognised by what is inside and
+moved whole. `Crash Bandicoot (USA)/` lands as `PS1/Crash Bandicoot (USA)/`,
+readme and all. The folder is kept rather than emptied out, because a cue sheet
+names its tracks by bare filename and the scanner reads system folders
+recursively anyway.
+
+**A `.zip` is asked what it holds.** The archive index lists the filenames inside
+without unpacking anything, so `Super Metroid (USA).zip` files itself under
+`SNES/`. An arcade set, whose contents are `.rom` and `.u1` files that name no
+system, is left alone — as is any archive holding games for more than one system.
+
 For formats where the extension doesn't say — `.bin`, `.iso`, `.cue`, `.img` could
 each be one of half a dozen systems — **the file is opened and asked**. Disc images
 carry a signature identifying the console that made them: a PS1 disc says
